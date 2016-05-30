@@ -1,0 +1,7 @@
+[Log analyzer]
+ - make - Build log analysis tool
+ - bt_audit - Build a causal graph of back-tracking an attack without BEEP. It ignores instrumented system calls.
+ - bt_beep  - Build a causal graph of back-tracking an attack with BEEP. It analyzes instrumented system calls to identify UNITs and its dependences.
+ - fs_audit - Build a causal graph of forward search without BEEP.
+ - fs_beep  - Build a causal graph of forward search with BEEP.
+
