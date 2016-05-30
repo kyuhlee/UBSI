@@ -1,0 +1,6 @@
+1. Start audit daemon
+   $ audit.sh
+
+2. Terminsate audit daemon and collect audit logs
+   $ auditlog.sh
+
