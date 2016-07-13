@@ -232,7 +232,7 @@ string extract_sockaddr(char *ss, const char *needle, INT size)
  char *s = strstr(ss, needle);
 	s += size;
 
-	char temp[256], addr[128];
+	char temp[1024], addr[128];
 	int family;
 
 	sprintf(temp, "perl %s -s %s",parse_sock, s);
