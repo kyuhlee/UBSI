@@ -80,6 +80,8 @@ enum syscall_num {
 		SYS_readv = 19,
 		SYS_writev = 20,
 		SYS_pipe = 22,
+  SYS_dup = 32,
+  SYS_dup2 = 33,
 		SYS_socket = 41,
 		SYS_connect = 42,
 		SYS_accept = 43,
@@ -95,7 +97,9 @@ enum syscall_num {
 		SYS_rename = 82,
 		SYS_link = 86,
 		SYS_unlink = 87,
+		SYS_unlinkat = 263,
 		SYS_accept4 = 288,
+		SYS_dup3 = 292,
 		SYS_pipe2 = 293,
 		SYS_preadv = 295,
 		SYS_pwritev = 296,
@@ -186,6 +190,7 @@ extern map<INT, INT> unitId;
 extern bool is_forward_search;
 extern char auditlog_name[256];
 extern char parse_sock[256];
+extern map<INT, map<INT,INT> > dup_map; // <pid, <newfd, oldfd> >
 
 const char *get_syscall_name(INT num);
 void log_clean();
@@ -243,4 +248,7 @@ INT insert_tainted_inode2(INT inode, bool isWrite);
 void remove_tainted_inode(INT inode);
 
 
+void insert_dup(INT spid, INT oldfd, INT newfd);
+INT find_dup_fd(INT spid, INT fd) ;
 void kyu_print_mem_access();
+void inherit_file_table(INT old_spid, INT new_spid);
