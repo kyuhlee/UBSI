@@ -188,8 +188,11 @@ void write_process(INT spid, INT pid, INT unitid, INT inode, string name, bool i
 
 	if(isSocket)
 		isLocalSocket = is_local_socket(name);
-
+//#ifdef WITHOUT_UNIT
 	if(is_tainted_proc(pid, unitid))
+//#else
+//	if(is_tainted_proc_list(pid, unitid))
+//#endif
 	{
 		if(isSocket) {
 			bool temp;
@@ -351,7 +354,7 @@ bool isRead(INT sysnum)
 	if(sysnum == SYS_accept && logentry.success) return true;
 	if(sysnum == SYS_accept4 && logentry.success) return true;
 	if(sysnum == SYS_connect && logentry.exit == -4) return true;
-	if(sysnum == SYS_open && logentry.success) return true;
+//	if(sysnum == SYS_open && logentry.success) return true;
 
 	return false;
 }

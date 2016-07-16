@@ -15,8 +15,8 @@ using namespace std;
 #define IGNORE_WRITEONLY_FILE
 #define IGNORE_LIB_CONF
 #define BT_IGNORE_WRITE
-#define NDEBUG
-#define NDEBUG_CORE
+//#define NDEBUG
+//#define NDEBUG_CORE
 
 #ifdef NDEBUG
 #define debug(M, ...)
@@ -180,6 +180,7 @@ typedef struct {
 } ForkChild; // This is necessary when the program fork but not exec
 
 extern map<INT, ForkChild> forkChild;
+extern set<INT> taintedUnitList;
 extern map<INT, TempList> tempList;
 extern DepList tainted;
 extern set<INT> taintedPid;

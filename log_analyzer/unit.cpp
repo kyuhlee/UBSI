@@ -21,11 +21,20 @@ void print_dep_units()
 		return;
 #endif
 		map<INT, set<INT> >::iterator iter;
+		set<INT>::iterator tit;
 		int num = 0;
-
+				
+		fprintf(stderr, "tainted Unit Map: ");
+		for(tit = taintedUnitList.begin(); tit != taintedUnitList.end(); tit++)
+		{
+				fprintf(stderr, "%ld ", *tit);
+		}
+		fprintf(stderr,"\n");
 		for(iter = unitMap.begin(); iter != unitMap.end(); iter++)
 		{
-				fprintf(stderr, "UnitMap %ld : ", iter->first);
+				fprintf(stderr, "UnitMap %ld ", iter->first);
+				if(taintedUnitList.find(iter->first) != taintedUnitList.end()) fprintf(stderr, "[Tainted]: ");
+				else fprintf(stderr, ": ");
 				set<INT>::iterator iter2;
 				for(iter2 = iter->second.begin(); iter2 != iter->second.end(); iter2++)
 				{
@@ -61,12 +70,34 @@ void insert_unitMap(INT from, INT to)
 		map<INT, set<INT> >::iterator iter;
 
 		map<long int, INT>::iterator miter, miter2;
+		set<INT>::iterator it;
 		miter = unitMapFinder.find(from);
 		miter2 = unitMapFinder.find(to);
 
 		if(miter != unitMapFinder.end() && miter2 != unitMapFinder.end())
 		{
-				return ;
+				if(miter->second == miter2->second) return;  // they are already in the same map
+
+				//Now we need to merge two maps: Merge miter2 --> miter1 and delete miter2
+				//map<INT, set<INT> > unitMap;
+				//map<long int, INT> unitMapFinder;
+				INT unitMapNumber_t = miter->second;
+				INT unitMapNumber_remove = miter2->second;
+				for(it = unitMap[unitMapNumber_remove].begin(); it != unitMap[unitMapNumber_remove].end(); it++)
+				{
+						unitMapFinder[*it] = unitMapNumber_t;
+						unitMap[unitMapNumber_t].insert(*it);
+				}
+				if(taintedUnitList.find(unitMapNumber_remove) != taintedUnitList.end())
+				{
+						 taintedUnitList.insert(unitMapNumber_t);
+				}
+				unitMap[unitMapNumber_remove].clear();
+				/*unitMap[miter->second].insert(to);
+				unitMapFinder.insert(pair<long int, INT>(to, miter->second));
+				unitMap[miter2->second].insert(from);
+				unitMapFinder.insert(pair<long int, INT>(from, miter2->second));
+				*/
 		} else if(miter == unitMapFinder.end() && miter2 == unitMapFinder.end()) {
 				set<INT> s;
 				s.insert(from);
@@ -113,7 +144,7 @@ void unit_insert_read(INT spid, INT pid, INT unitid, unsigned INT addr)
 		u = (to << 32) >> 32;
 		if(from != to) debug("Unit dependence detected (addr %lx) : last write src %ld (pid %ld, uid %ld) - src %ld (pid %ld, uid %ld)\n", addr, iter3->second, p, u, srcLoc[pid], pid, unitid );
 		insert_unitMap(from, to);
-		//print_dep_units();
+		print_dep_units();
 }
 
 void unit_insert_write(INT spid, INT pid, INT unitid, unsigned INT addr)

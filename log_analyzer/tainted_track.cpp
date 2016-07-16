@@ -65,12 +65,15 @@ void insert_tainted_proc_list(INT pid, INT unitid)
 		insert_tainted_proc(pid, unitid);
 		
 		INT units = get_dep_units(pid, unitid);
+		debug("tainted list units = %ld\n", units);
 		if(units == -1) return;
 
 		set<INT>::iterator iter;
 		iter = taintedUnitList.find(units);
 		if(iter != taintedUnitList.end()) return;
-
+		
+		debug("tainted list units = %ld\n", units);
+		print_dep_units();
 		taintedUnitList.insert(units);
 
 		set<INT>::iterator iter2;
