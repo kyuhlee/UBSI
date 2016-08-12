@@ -11,12 +11,12 @@ using namespace std;
 //#define IGNORE_SRC 26
 //#define KYU_TEST
 #define INT long
-#define IGNORE_READONLY_FILE
+//#define IGNORE_READONLY_FILE
 #define IGNORE_WRITEONLY_FILE
 #define IGNORE_LIB_CONF
 #define BT_IGNORE_WRITE
-//#define NDEBUG
-//#define NDEBUG_CORE
+#define NDEBUG
+#define NDEBUG_CORE
 
 #ifdef NDEBUG
 #define debug(M, ...)

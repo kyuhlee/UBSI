@@ -292,6 +292,7 @@ bool isRead(INT sysnum)
 		if(sysnum == SYS_recvmsg && logentry.success) return true;
 		if(sysnum == SYS_accept && logentry.success) return true;
 		if(sysnum == SYS_connect && logentry.exit == -4) return true;
+		//if(sysnum == SYS_open && logentry.success) return true; // for pine file attachment
 
 		return false;
 }

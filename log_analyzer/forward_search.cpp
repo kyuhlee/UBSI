@@ -201,10 +201,10 @@ void write_process(INT spid, INT pid, INT unitid, INT inode, string name, bool i
 			//liter = localSocket.find(fileNameFS);
 			//if(liter != localSocket.end()) localSocket.erase(liter);
 			//}
-			debug("Target add(%ld,%ld) : proc -> socket : %ld - %s\n", pid, unitid, spid, name.c_str()); 
+			debug("[%ld] Target add(%ld,%ld) : proc -> socket : %ld - %s\n", logentry.log_num, pid, unitid, spid, name.c_str()); 
 			targetProcess[spid].socketwrite.insert(name);
 		} else {
-			debug("Target add(%ld,%ld) : proc -> file : %ld - %s(%ld)\n", pid, unitid,  spid, name.c_str(),inode);
+			debug("[%ld] Target add(%ld,%ld) : proc -> file : %ld - %s(%ld)\n", logentry.log_num, pid, unitid,  spid, name.c_str(),inode);
 			targetProcess[spid].filewrite.insert(name);
 			flag = true;
 			insert_tainted_inode2(inode, true);

@@ -45,21 +45,11 @@ int main(int argc, char** argv)
 		fseek(log_fd, 0, SEEK_SET);
 		for(map<long, set<long> >::iterator it = log_map.begin(); it != log_map.end(); it++)
 		{
-				long map_num = it->first;
 				for(set<long>::iterator it2 = it->second.begin(); it2 != it->second.end(); it2++)
 				{
 						fseek(log_fd, *it2, SEEK_SET);
-						while(!feof(log_fd)) {
-								fgets(temp, 60480, log_fd);
-								t = strstr(temp, (char*)":");
-								if(t == NULL) {
-										fprintf(stderr, "cannot find : %s\n\n\n", temp);
-										return 0;
-								}
-								sscanf(t+1, "%ld", &num);
-								if(num == map_num) printf("%s", temp);
-								else break;
-						}
+						fgets(temp, 60480, log_fd);
+						printf("%s", temp);
 				}
 		}
 		fclose(log_fd);

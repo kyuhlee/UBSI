@@ -244,12 +244,12 @@ string extract_sockaddr(char *ss, const char *needle, INT size)
 
 	//printf("family %d, addr %s\n", family, addr);
 
-	if(family > 2) return handle_empty_sock(s);
-	return string(addr);
+	if(family <= 2) return string(addr);
+
 	//const char *s = "0A00EFF30000000000000000000000000000FFFF800A7D4700000000";
 	//const char *s = "020000357F0001010000000000000000";
 
-	/*
+	
 		 uint8_t bytes[128] = {0,};
 		 struct sockaddr *sa = NULL;
 		 char str[128] = {0,};
@@ -261,7 +261,7 @@ string extract_sockaddr(char *ss, const char *needle, INT size)
 
 		 if(sockaddr_to_str(sa, str, sizeof(str)/sizeof(str[0])) == NULL) return handle_empty_sock(s);
 		 return string(str);
-		 */
+		
 }
 /*
 	 string extract_sockaddr(char *s, const char *needle, INT size)
