@@ -292,6 +292,7 @@ bool isRead(INT sysnum)
 		if(sysnum == SYS_recvmsg && logentry.success) return true;
 		if(sysnum == SYS_accept && logentry.success) return true;
 		if(sysnum == SYS_connect && logentry.exit == -4) return true;
+		if(sysnum == SYS_getpeername && logentry.success) return true;
 		//if(sysnum == SYS_open && logentry.success) return true; // for pine file attachment
 
 		return false;
@@ -421,6 +422,8 @@ void reverse_log(void)
 								//logentry.inode = 1;
 								isSocket = true;
 						} else if(logentry.sysnum == SYS_connect) {
+								isSocket = true;
+						} else if(logentry.sysnum == SYS_getpeername) {
 								isSocket = true;
 						} else if(logentry.sysnum == SYS_recvfrom) {
 								debug("[%ld,%ld] recvfrom:\n", logentry.pid, logentry.unitid);

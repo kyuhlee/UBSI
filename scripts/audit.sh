@@ -34,11 +34,18 @@ echo "Cleaning up auditd rules..."
 _sudo auditctl -D || fail 4
 
 echo "Applying new set of rules to auditd..."
+_sudo auditctl -a exit,always -F arch=b64 -S all -F pid!=$AUDITD_PID
+
+
+#_sudo auditctl -a exit,always -F arch=b64 -S kill -S exit -S exit_group -S connect -F uid=$USER_ID
+#_sudo auditctl -a exit,always -F arch=b64 -S read -S all -F success=1 -F uid=$USER_ID
+#_sudo auditctl -a exit,always -F arch=b64 -S all -F uid=$USER_ID
+#_sudo auditctl -a exit,always -F arch=b64 -S all -F pid!=$AUDITD_PID
+
 #_sudo auditctl -a exit,always -F arch=b64 -S kill -S exit -S exit_group -F uid=$USER_ID
 #_sudo auditctl -a exit,always -F arch=b64 -S read -S readv -S write -S writev -S sendto -S recvfrom -S sendmsg -S recvmsg -S mmap -S mprotect -S link -S symlink -S clone -S fork -S vfork -S execve -S open -S close -S creat -S openat -S mknodat -S mknod -S dup -S dup2 -S dup3 -S bind -S accept -S accept4 -S connect -S rename -S setuid -S setreuid -S setresuid -S chmod -S fchmod -S pipe -S pipe2 -S truncate -S ftruncate -S sendfile -F success=1 -F uid=$USER_ID
 
-_sudo auditctl -a exit,always -F arch=b64 -S kill -S exit -S exit_group -F pid!=$AUDITD_PID
-_sudo auditctl -a exit,always -F arch=b64 -S read -S all -F success=1 -F pid!=$AUDITD_PID
+#_sudo auditctl -a exit,always -F arch=b64 -S kill -S exit -S exit_group -S connect -F pid!=$AUDITD_PID
 #_sudo auditctl -a exit,always -F arch=b64 -S read -S readv -S write -S writev -S sendto -S recvfrom -S sendmsg -S recvmsg -S mmap -S mprotect -S link -S symlink -S clone -S fork -S vfork -S execve -S open -S close -S creat -S openat -S mknodat -S mknod -S dup -S dup2 -S dup3 -S bind -S accept -S accept4 -S connect -S rename -S setuid -S setreuid -S setresuid -S chmod -S fchmod -S pipe -S pipe2 -S truncate -S ftruncate -S sendfile -S unlink -S unlinkat -F success=1 -F pid!=$AUDITD_PID
 
 #_sudo auditctl -a exit,always -F arch=b64 -S all -F uid=$USER_ID

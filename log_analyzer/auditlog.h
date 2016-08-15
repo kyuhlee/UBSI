@@ -12,7 +12,7 @@ using namespace std;
 //#define KYU_TEST
 #define INT long
 //#define IGNORE_READONLY_FILE
-#define IGNORE_WRITEONLY_FILE
+//#define IGNORE_WRITEONLY_FILE
 #define IGNORE_LIB_CONF
 #define BT_IGNORE_WRITE
 #define NDEBUG
@@ -89,6 +89,7 @@ enum syscall_num {
 		SYS_recvfrom = 45,
 		SYS_sendmsg = 46,
 		SYS_recvmsg = 47,
+		SYS_getpeername = 52,
 		SYS_clone = 56,
 		SYS_fork = 57,
 		SYS_vfork = 58,
