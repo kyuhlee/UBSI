@@ -34,11 +34,11 @@ echo "Cleaning up auditd rules..."
 _sudo auditctl -D || fail 4
 
 echo "Applying new set of rules to auditd..."
-_sudo auditctl -a exit,always -F arch=b64 -S all -F pid!=$AUDITD_PID
+#_sudo auditctl -a exit,always -F arch=b64 -S all -F pid!=$AUDITD_PID
 
 
-#_sudo auditctl -a exit,always -F arch=b64 -S kill -S exit -S exit_group -S connect -F uid=$USER_ID
-#_sudo auditctl -a exit,always -F arch=b64 -S read -S all -F success=1 -F uid=$USER_ID
+_sudo auditctl -a exit,always -F arch=b64 -S kill -S exit -S exit_group -S connect -F uid=$USER_ID
+_sudo auditctl -a exit,always -F arch=b64 -S all -F success=1 -F uid=$USER_ID
 #_sudo auditctl -a exit,always -F arch=b64 -S all -F uid=$USER_ID
 #_sudo auditctl -a exit,always -F arch=b64 -S all -F pid!=$AUDITD_PID
 
