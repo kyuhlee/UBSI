@@ -1,0 +1,5 @@
+sudo apt-get install auditd libauparse-dev libaudit-dev
+make
+sudo cp audisp-UBSI /sbin/
+sudo cp audisp-UBSI.conf /etc/audisp/plugins.d/
+
