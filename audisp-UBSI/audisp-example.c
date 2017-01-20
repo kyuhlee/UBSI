@@ -2,8 +2,8 @@
 #include <stdio.h>
 #include <signal.h>
 #include <string.h>
-#include "libaudit.h"
-#include "auparse.h"
+#include <libaudit.h>
+#include <auparse.h>
 
 /* Global Data */
 static volatile int stop = 0;

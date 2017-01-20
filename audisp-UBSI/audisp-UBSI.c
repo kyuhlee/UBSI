@@ -439,7 +439,6 @@ void syscall_handler(char *buf)
 				printf("ptr = NULL: %s\n", buf);
 				return;
 		}
-		//sysno = atoi(ptr);
 		sysno = strtol(ptr+9, NULL, 10);
 		//printf("SYSNO %d: %s\n", sysno, ptr);
 		
@@ -470,7 +469,7 @@ void syscall_handler(char *buf)
 		}
 }
 
-int buffering(const char *buf, int execute)
+int buffer(const char *buf, int execute)
 {
 		//static long last_eid = 0;
 		static char stag_buf[1048576];
@@ -587,9 +586,9 @@ static void handle_event(auparse_state_t *au,
 		
 
 		do {
-				buffering(auparse_get_record_text(au), 0);
+				buffer(auparse_get_record_text(au), 0);
 		} while(auparse_next_record(au) > 0);
-		buffering(NULL, 1);
+		buffer(NULL, 1);
 		return;
 
 		if (cb_event_type != AUPARSE_CB_EVENT_READY)
