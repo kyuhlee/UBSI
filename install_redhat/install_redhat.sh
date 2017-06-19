@@ -1,0 +1,16 @@
+#!/bin/bash
+./prerequisite.sh
+./httpd-2.4.20.sh
+./vim-7.3.sh
+./proftpd-1.3.4.sh
+./wget-1.17.1.sh
+./w3m-0.5.3.sh
+./pine-4.64.sh
+./cherokee-1.2.1.sh
+./yafc-1.1.1.sh
+./transmission-2.60.sh
+./bash-4.3.30.sh
+./mc-4.6.1.sh
+./sshd-7.2.sh
+./sendmail-8.15.2.sh
+./firefox-42.0.sh
