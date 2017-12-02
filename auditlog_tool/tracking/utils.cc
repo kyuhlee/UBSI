@@ -335,6 +335,14 @@ bool is_write(int sysno)
 		return false;
 }
 
+bool is_socket(int sysno)
+{
+		if(sysno == SYS_sendto) return true;
+		if(sysno == SYS_sendmsg) return true;
+
+		return false;
+}
+
 bool is_file_create(int sysno)
 {
 		//if(sysno == SYS_open) return true;

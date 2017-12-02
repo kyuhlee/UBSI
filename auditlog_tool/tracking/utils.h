@@ -63,6 +63,7 @@ void get_comm(char *buf, char *comm);
 bool get_succ(char *buf);
 bool is_read(int sysno);
 bool is_write(int sysno);
+bool is_socket(int sysno);
 bool is_file_create(int sysno);
 bool is_file_delete(int sysno);
 bool is_file_rename(int sysno);

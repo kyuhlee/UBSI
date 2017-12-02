@@ -183,7 +183,7 @@ void bt_syscall_handler(char *buf)
 				read_handler(sysno, buf);
 		}
 
-		if(is_write(sysno)) {
+		if(is_write(sysno) && !is_socket(sysno)) {
 				write_handler(sysno, buf);
 		}
 		if(is_fork_or_clone(sysno)) {

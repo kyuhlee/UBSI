@@ -196,6 +196,9 @@ void file_fd_handler(char *buf, long eid, fd_table_t *ft)
 		ptr = strstr(buf, "type=CWD");
 		if(ptr != NULL) {
 				fd_el->cwd = extract_string(ptr, "cwd=", 4);
+		} else {
+				fprintf(stderr, "File open log does not have \"CWD\". Try again after sort the log file with \"sortlog\" command.\n");
+				return;
 		}
 
 		while(1)
