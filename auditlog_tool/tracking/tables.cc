@@ -464,8 +464,8 @@ inode_t find_inode(long inode, long eid)
 		
 		HASH_FIND(hh, inode_table, &inode, sizeof(long), it);
 		if(it == NULL) {
-				//printf("Inode %ld is not in the table.\n", inode);
-				//assert(0);
+				printf("Inode %ld is not in the table.\n", inode);
+				assert(0);
 				ret.inode = inode;
 				ret.created_eid = 0;
 
@@ -482,8 +482,7 @@ inode_t find_inode(long inode, long eid)
 						return ret;
 				}
 		}
-		fprintf(stderr, "inode %ld, eid %ld is not valid..\n", inode, eid);
- 	assert(0);
+		assert(0);
 		ret.inode = inode;
 		ret.created_eid = 0;
 		
@@ -514,7 +513,7 @@ long check_inode_list(long inode, string *path)
 				return it->list.back().created_eid;
 		}
 
-		printf("\n **More than two files have Inode %ld. Select the number:\n", inode);
+		printf("More than two files have Inode %ld. Select the number:\n", inode);
 		
 		int i = 1;
 		for(iit = it->list.begin(); iit != it->list.end(); iit++)
@@ -624,15 +623,14 @@ void generate_fp_table(FILE *fp)
 		long sys_eid, eid;
 
 		printf("\n(1/4) Generate file pointer table (# of syscall: %ld).\n", num_syscall);
-		
-		num_syscall++;
+
 		fseek(fp, 0L, SEEK_END);
 		fend = ftell(fp);
 		fseek(fp, 0L, SEEK_SET);
 		loadBar(0, fend, 10, 50);
 
-		fp_table = (long**)malloc(sizeof(long*) * num_syscall);
-		for(i = 0; i < num_syscall; i++)
+		fp_table = (long**)malloc(sizeof(long*) * (num_syscall+1));
+		for(i = 0; i < num_syscall+1; i++)
 		{
 				fp_table[i] = (long*) malloc(sizeof(long) * 2);
 		}
