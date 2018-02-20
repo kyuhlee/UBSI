@@ -37,6 +37,7 @@ http://www-01.ibm.com/support/knowledgecenter/ssw_i5_54/rzab6/xconoclient.htm
 #include <time.h>
 #include <errno.h>
 
+#define  EMIT_ONLY_SYSCALL 1
 #define SERVER_PATH     "/var/run/audispd_events"
 #define BUFFER_LENGTH   10000
 #define FALSE           0
@@ -306,6 +307,9 @@ void read_log(FILE *fp, char* filepath)
 								//UBSI_buffer_flush();
 								break;
 						}
+#ifdef EMIT_ONLY_SYSCALL
+						if(strstr(buffer, "type=SYSCALL") != NULL) 
+#endif
 						UBSI_buffer(buffer);
 				}
 		} while (FALSE);
@@ -655,8 +659,13 @@ int emit_log(unit_table_t *ut, char* buf, bool print_unit, bool print_proc)
 		
 		rc = printf("%s", buf);
 		if(print_unit) {
+				if(ut->valid) {
 				rc += printf(" unit=(pid=%d thread_time=%d.%d unitid=%d iteration=%d time=%.3lf count=%d) "
 							,ut->cur_unit.tid, ut->thread.thread_time.seconds, ut->thread.thread_time.milliseconds, ut->cur_unit.loopid, ut->cur_unit.iteration, ut->cur_unit.timestamp, ut->cur_unit.count);
+				} else {
+						rc += printf(" unit=(pid=%d thread_time=%d.%d unitid=0 iteration=0 time=0.000 count=0) "
+							,ut->cur_unit.tid, ut->thread.thread_time.seconds, ut->thread.thread_time.milliseconds);
+				}
 		} 
 
 		if(print_proc) {
