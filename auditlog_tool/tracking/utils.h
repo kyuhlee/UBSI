@@ -54,6 +54,7 @@ int extract_time(char *s, time_t *t, unsigned int *mil);
 string extract_sockaddr(char *ss, const char *needle, int size);
 string extract_string(char *s, const char *needle, int size);
 int extract_int(char *s, const char *needle, int size, int *store);
+int extract_hex_int(char *s, const char *needle, int size, int *store);
 int extract_long(char *s, const char *needle, int size, long *store);
 int extract_hex_long(char *s, const char *needle, int size, long *store);
 int get_fd(int sysno, char *buf);

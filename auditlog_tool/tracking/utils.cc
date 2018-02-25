@@ -221,6 +221,21 @@ int extract_long(char *s, const char *needle, int size, long *store)
 		return 0;
 }
 
+int extract_hex_int(char *s, const char *needle, int size, int *store)
+{
+		char *ptr;
+
+		ptr = strstr(s, needle);
+
+		//if(ptr && sscanf(ptr+size, "%ld", store) > 0) return 1;
+		if(ptr)
+		{
+				*store = strtol(ptr+size, NULL, 16);
+				return 1;
+		}
+
+		return 0;
+}
 int extract_int(char *s, const char *needle, int size, int *store)
 {
 		char *ptr;
@@ -296,7 +311,7 @@ int get_fd(int sysno, char *buf)
 				case SYS_pwritev:
 				case SYS_sendto:
 				case SYS_sendmsg:
-						extract_int(buf, " a0=", 4, &fd);
+						extract_hex_int(buf, " a0=", 4, &fd);
 						break;
 
 				case SYS_accept:

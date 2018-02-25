@@ -37,7 +37,7 @@ http://www-01.ibm.com/support/knowledgecenter/ssw_i5_54/rzab6/xconoclient.htm
 #include <time.h>
 #include <errno.h>
 
-#define  EMIT_ONLY_SYSCALL 1
+//#define  EMIT_ONLY_SYSCALL 1
 #define SERVER_PATH     "/var/run/audispd_events"
 #define BUFFER_LENGTH   10000
 #define FALSE           0
@@ -646,33 +646,58 @@ long get_eventid(char* buf){
 		return eventId;
 }
 
+int emit_log_print_unit(unit_table_t *ut)
+{
+		int rc = 0;
+		if(ut->valid) {
+				rc += printf(" unit=(pid=%d thread_time=%d.%d unitid=%d iteration=%d time=%.3lf count=%d)"
+								,ut->cur_unit.tid, ut->thread.thread_time.seconds, ut->thread.thread_time.milliseconds, ut->cur_unit.loopid, ut->cur_unit.iteration, ut->cur_unit.timestamp, ut->cur_unit.count);
+		} else {
+				rc += printf(" unit=(pid=%d thread_time=%d.%d unitid=0 iteration=0 time=0.000 count=0)"
+								,ut->cur_unit.tid, ut->thread.thread_time.seconds, ut->thread.thread_time.milliseconds);
+		}
+		return rc;
+}
+
 int emit_log(unit_table_t *ut, char* buf, bool print_unit, bool print_proc)
 {
 		int rc = 0;
+		char *ptr, *ptr2;
 
 		if(!print_unit && !print_proc) {
 				rc = printf("%s", buf);
 				return rc;
 		}
-
-		buf[strlen(buf)-1] = '\0';
 		
-		rc = printf("%s", buf);
-		if(print_unit) {
-				if(ut->valid) {
-				rc += printf(" unit=(pid=%d thread_time=%d.%d unitid=%d iteration=%d time=%.3lf count=%d) "
-							,ut->cur_unit.tid, ut->thread.thread_time.seconds, ut->thread.thread_time.milliseconds, ut->cur_unit.loopid, ut->cur_unit.iteration, ut->cur_unit.timestamp, ut->cur_unit.count);
-				} else {
-						rc += printf(" unit=(pid=%d thread_time=%d.%d unitid=0 iteration=0 time=0.000 count=0) "
-							,ut->cur_unit.tid, ut->thread.thread_time.seconds, ut->thread.thread_time.milliseconds);
-				}
-		} 
+		buf[strlen(buf)-1] = '\0';
 
-		if(print_proc) {
-				rc += printf("%s", ut->proc);
+		if(print_unit) {
+				ptr = strstr(buf, "type=SYSCALL");
+				if(ptr == NULL) {
+						rc = printf("%s", buf);
+						rc += emit_log_print_unit(ut);
+				} else {
+						ptr2 = strstr(ptr+9, "\n");
+						if(ptr2 == NULL) {
+								rc += printf("%s", buf);
+								rc += emit_log_print_unit(ut);
+						} else {
+								ptr2[0] = '\0';
+								rc += printf("%s", buf);
+								rc += emit_log_print_unit(ut);
+								if(ptr2 + 1 != '\0') 
+										rc += printf("\n%s", ptr2+1);
+						}
+				}
+		} else {
+				rc = printf("%s", buf);
 		}
 
-		if(!print_proc) rc += printf("\n");
+		if(print_proc) {
+				rc += printf(" %s", ut->proc);
+		} else {
+				rc += printf("\n");
+		}
 
 		return rc;
 }
@@ -924,10 +949,9 @@ void mem_read(unit_table_t *ut, long int addr, char *buf)
 						HASH_ADD(hh, ut->link_unit, id, sizeof(thread_unit_t), lt);
 
 						get_time_and_eventid(buf, &time, &eventId);
-						/*sprintf(tmp, "type=UBSI_DEP msg=ubsi(%.3f:%ld): dep=(pid=%d thread_time=%d.%d unitid=%d iteration=%d time=%.3lf count=%d), "
+						sprintf(tmp, "type=UBSI_DEP msg=ubsi(%.3f:%ld): dep=(pid=%d thread_time=%d.%d unitid=%d iteration=%d time=%.3lf count=%d), "
 								,time, eventId, lt->id.tid, lt->id.thread_time.seconds, lt->id.thread_time.milliseconds, lt->id.loopid, lt->id.iteration, lt->id.timestamp, lt->id.count);
 						emit_log(ut, tmp, true, true);
-						*/
 				}
 		}
 }

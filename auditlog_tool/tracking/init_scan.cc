@@ -232,7 +232,7 @@ void fd_handler(char *buf, int tid, int sysno)
 
 		if(sysno == 42) { // connect: a0 is a fd.
 				ptr = strstr(ptr, " a0=");
-				fd = strtol(ptr+4, NULL, 10);
+				fd = strtol(ptr+4, NULL, 16);
 		} else {
 				ptr = strstr(ptr, " exit=");
 				fd = strtol(ptr+6, NULL, 10);
