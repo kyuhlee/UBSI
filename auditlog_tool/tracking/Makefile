@@ -1,4 +1,4 @@
-EXECUTABLE=UBSI_bt AUDIT_bt UBSI_ft AUDIT_ft UBSI_print bridge insert_log_into_mysql
+EXECUTABLE=UBSI_bt AUDIT_bt UBSI_ft AUDIT_ft UBSI_print bridge UBSI_into_SQL
 
 all: $(EXECUTABLE)
 
@@ -11,8 +11,11 @@ HEADERS=utils.h tables.h init_scan.h graph.h
 bridge: bridge.c
 		gcc bridge.c -o bridge
 
-insert_log_into_mysql: insert_log_into_mysql.cc
-		$(CC) insert_log_into_mysql.cc $(CFLAGS) -o $@
+UBSI_into_SQL: UBSI_into_SQL.cc process_dep.cc process_dep.h utils.cc utils.h
+		$(CC) UBSI_into_SQL.cc process_dep.cc utils.cc $(CFLAGS) -o $@
+
+UBSI_dep: $(SOURCES) $(HEADERS) UBSI_dep.cc
+	$(CC) UBSI_dep.cc $(SOURCES) $(CFLAGS) -g -o $@
 
 UBSI_print: $(SOURCES) $(HEADERS) UBSI_print.cc
 	$(CC) UBSI_print.cc $(SOURCES) $(CFLAGS) -g -o $@

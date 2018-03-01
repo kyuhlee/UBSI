@@ -27,6 +27,19 @@ typedef struct thread_unit_t {
 		int count; // if two or more loops starts at the same timestamp. We use count to distinguish them.
 } thread_unit_t;
 
+// Reads timestamp from audit record and then sets the seconds and milliseconds to the thread_time struct ref passed
+void set_thread_time(char *buf, thread_time_t* thread_time)
+{
+		char *ptr;
+		ptr = strstr(buf, "(");
+		assert(ptr);
+		
+		sscanf(ptr+1, "%d.%d", &(thread_time->seconds), &(thread_time->milliseconds));
+		//double time = get_timestamp(buf);
+		//thread_time->seconds = (int)time;
+		//thread_time->milliseconds = (int)((time - thread_time->seconds) * 1000);
+}
+
 int scan_unit(char *ptr, thread_unit_t *unit)
 {
 		sscanf(ptr, "(pid=%d thread_time=%d.%d unitid=%d iteration=%d time=%lf count=%d) ", 
@@ -34,9 +47,9 @@ int scan_unit(char *ptr, thread_unit_t *unit)
 				&(unit->loopid), &(unit->iteration), &(unit->timestamp), &(unit->count));
 }
 
-void print_unit(thread_unit_t *unit)
+void print_unit(thread_unit_t *unit, FILE *fp)
 {
-			fprintf(out_fp, " unit=(pid=%d thread_time=%d.%d unitid=%d iteration=%d time=%.3lf count=%d) ",
+			fprintf(fp, "(pid=%d thread_time=%d.%d unitid=%d iteration=%d time=%.3lf count=%d) ",
 		  unit->tid, unit->thread_time.seconds, unit->thread_time.milliseconds, 
 				unit->loopid, unit->iteration, unit->timestamp, unit->count);
 }
@@ -80,8 +93,8 @@ void write_handler(int sysno, char *buf)
 				return;
 		}
 		
-		fprintf(out_fp, "UBSI_PATH: WRITE ");
-		print_unit(&uid);
+		fprintf(out_fp, "UBSI_PATH: WRITE unit=");
+		print_unit(&uid, out_fp);
 		fprintf(out_fp,  "fd %d (sysno %d, eid %ld, tid %d (pid %d)): inode %ld, path:%s, pathtype: %s\n",
 						fd, sysno, eid, tid, pid, fd_el->inode[fd_el->num_path-1], 
 						get_absolute_path(fd_el, fd_el->num_path-1).c_str(), fd_el->pathtype[fd_el->num_path-1].c_str());
@@ -128,12 +141,12 @@ void read_handler(int sysno, char *buf)
 		fd_el = get_fd(pt, fd, eid);
 
 		if(fd_el == NULL || fd_el->num_path == 0) {
-				exe = extract_string(buf, " exe=", 5);
-				fprintf(out_fp, "tid %d, pid %d(%s), eid %ld, fd %d does not exist\n", tid, pid, exe.c_str(), eid, fd);
+				//exe = extract_string(buf, " exe=", 5);
+				//fprintf(out_fp, "tid %d, pid %d(%s), eid %ld, fd %d does not exist\n", tid, pid, exe.c_str(), eid, fd);
 				return;
 		}
-		fprintf(out_fp, "UBSI_PATH: READ ");
-		print_unit(&uid);
+		fprintf(out_fp, "UBSI_PATH: READ unit=");
+		print_unit(&uid, out_fp);
 		fprintf(out_fp,  "fd %d (sysno %d, eid %ld, tid %d (pid %d)): inode %ld, path:%s, pathtype: %s\n",
 						fd, sysno, eid, tid, pid, fd_el->inode[fd_el->num_path-1], 
 						get_absolute_path(fd_el, fd_el->num_path-1).c_str(), fd_el->pathtype[fd_el->num_path-1].c_str());
@@ -159,64 +172,83 @@ void file_create_handler(int sysno, char *buf)
 
 void fork_handler(int sysno, char *buf)
 {
-		long a1, eid;
-		int ret, tid, unitid;
-		string exe;
-		extract_hex_long(buf, " a1=", 4, &a1);	
-		//printf("fork handler a1 %ld: %s\n", a1, buf);
-		if(a1 > 0) return;
-
+		long eid;
+		int ret;
+		thread_unit_t uid;
+		thread_unit_t child;
+		char *ptr;
+		
+ 	extract_int(buf, " exit=", 6, &ret); 
 		extract_long(buf, ":", 1, &eid);
-		extract_int(buf, " pid=", 5, &tid); 
-		extract_int(buf, " unitid=", 8, &unitid); 
-		process_table_t *pt = get_process_table(get_pid(tid));
 
-		if(is_tainted_unit(pt, tid, unitid)) {
-				extract_int(buf, " exit=", 6, &ret); 
-				taint_all_units_in_pid(ret, "");
-				edge_proc_to_proc(tid, unitid, ret);
-				debugbt("Taint Process: fork (sysno %d) pid %d, unitid %d, exit %d\n", sysno, tid, unitid, ret);
+		ptr = strstr(buf, " unit=(");
+		if(ptr == NULL) {
+				fprintf(stderr, "PTR NULL: %s\n", buf);
 		}
+		assert(ptr);
+		
+		scan_unit(ptr+6, &uid);
+
+		set_thread_time(buf, &(child.thread_time));
+		child.tid = ret;
+		child.loopid = 0;
+		child.iteration = 0;
+		child.timestamp = 0;
+		child.count = 0;
+
+		fprintf(out_dep_fp, "type=UBSI_CLONE msg=ubsi(%d.%d:%ld): dep=", child.thread_time.seconds, child.thread_time.milliseconds, eid);
+		print_unit(&child, out_dep_fp);
+		fprintf(out_dep_fp, ", unit=");
+		print_unit(&uid, out_dep_fp);
+		fprintf(out_dep_fp, "\n");
+
 }
 
-void exec_handler(int sysno, char *buf)
+void exec_handler(int sysno, char *buf, FILE *fp)
 {
-		char *ptr;
-		string exe;
-		int fd, tid, pid, unitid;
+		char *ptr, buf2[1048576];
+		string path;
+		int tid, pid, unitid;
 		long eid, inode;
+		thread_unit_t uid;
 
-		process_table_t *pt;
+		ptr = strstr(buf, " unit=(");
+		if(ptr == NULL) {
+				fprintf(stderr, "PTR NULL: %s\n", buf);
+		}
+		assert(ptr);
+		
+		scan_unit(ptr+6, &uid);
 
 		extract_long(buf, ":", 1, &eid);
 		extract_int(buf, " pid=", 5, &tid);
-		extract_int(buf, " unitid=", 8, &unitid);
-
-#ifdef WITHOUT_UNIT
-		unitid = -1;
-#endif
 
 		pid = get_pid(tid);
 
-		pt = get_process_table(pid);
-
+		fprintf(out_fp, "UBSI_PATH: EXEC unit=");
+		print_unit(&uid, out_fp);
+		fprintf(out_fp,  " (sysno %d, eid %ld, tid %d (pid %d)): ", sysno, eid, tid, pid);
+	
 		ptr = strstr(buf, "type=PATH");
-		assert(ptr);
-
+		int i = 0;
+		while(ptr == NULL)
+		{
+				if(i++ > 3) break;
+				fgets(buf2, 1048576, fp);
+				ptr = strstr(buf2, "type=PATH");
+		}
+		if(ptr == NULL) {
+				fprintf(out_fp, "inode 0, path: \n");
+				return;
+		} 
 		ptr+=9;
+		path = extract_string(ptr, "name=", 5);
 		extract_long(ptr, " inode=", 7, &inode); 
 
-		if(is_tainted_inode(inode, eid)) {
-				exe = extract_string(buf, " exe=", 5);
-				taint_all_units_in_pid(pid, exe);
-				edge_file_to_proc(tid, -1, inode, eid);
-				debugbt("taint unit (tid %d(pid %d), unitid %d, exe %s): exec (sysno %d, eid %ld), inode %ld\n", 
-								tid, pid, -1, exe.c_str(),
-								sysno, eid, inode);
-		}
+		fprintf(out_fp, "inode %ld, path:%s\n", inode, path.c_str());
 }
 
-void pt_syscall_handler(char *buf)
+void pt_syscall_handler(char *buf, FILE *fp)
 {
 		char *ptr;
 		int sysno;
@@ -230,7 +262,7 @@ void pt_syscall_handler(char *buf)
 		}
 
 		if(is_exec(sysno)) {
-				//				exec_handler(sysno, buf);
+				exec_handler(sysno, buf, fp);
 		}
 		if(is_read(sysno)) {
 				read_handler(sysno, buf);
@@ -240,7 +272,7 @@ void pt_syscall_handler(char *buf)
 				write_handler(sysno, buf);
 		}
 		if(is_fork_or_clone(sysno)) {
-				//				fork_handler(sysno, buf);
+				fork_handler(sysno, buf);
 		}
 
 		fprintf(out_fp, "%s", buf);
@@ -266,7 +298,7 @@ void scan_and_print(FILE *fp)
 				eid = strtol(ptr+1, NULL, 10);
 
 				if(strncmp(buf, "type=SYSCALL",12) == 0) {
-						pt_syscall_handler(buf);
+						pt_syscall_handler(buf, fp);
 				}
 
 				if(strncmp(buf, "type=UBSI_DEP",13) == 0) {

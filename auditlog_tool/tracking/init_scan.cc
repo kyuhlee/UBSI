@@ -296,7 +296,7 @@ void init_syscall_handler(char *buf)
 						process_group_exit(tid);
 				}
 				process_exit(tid);
-		} else if(succ == true && (sysno == SYS_open || sysno == SYS_openat || sysno == SYS_creat || sysno == SYS_accept || sysno == SYS_connect || sysno == SYS_accept4)) {
+	} else if(succ == true && (sysno == SYS_open || sysno == SYS_openat || sysno == SYS_creat || sysno == SYS_accept || sysno == SYS_connect || sysno == SYS_accept4)) {
 				fd_handler(buf, tid, sysno);
 	} else if(succ == true && (sysno == SYS_socketpair || sysno == SYS_dup || sysno == SYS_dup2 || sysno == SYS_dup3)) {
 			fd_pair_handler(buf, tid, sysno);
