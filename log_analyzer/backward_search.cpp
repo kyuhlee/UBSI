@@ -537,7 +537,7 @@ int main(int argc, char** argv)
 		graph_init();
 		open_log();
 		reverse_log();
-		graph_fini();
+		graph_fini(argv[2]);
 		print_dep_units();
 }
 

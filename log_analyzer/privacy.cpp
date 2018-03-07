@@ -484,7 +484,7 @@ INT main(INT argc, char** argv)
 		open_log();
 		forward_search();
 		//reverse_log();
-		graph_fini();
+		graph_fini(argv[1]);
 		//print_dep_units();
 }
 
