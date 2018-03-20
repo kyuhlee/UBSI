@@ -55,7 +55,7 @@ char filePath[256];
 char dirPath[256];
 char dirTimeBuf[256];
 time_t dirTime = 0;
-int lastLogSecond, lastGCSecond;
+int lastLogSecond, lastGCSecond, lastPrintSecond;
 long freedMem = 0;
 
 // UBSI Unit analysis
@@ -72,7 +72,7 @@ typedef int bool;
 #define true 1
 #define false 0
 
-#define GC_TH 600
+#define GC_TH 3000
 
 // A struct to keep time as reported in audit log. Upto milliseconds.
 // Doing it this way because double and long values don't seem to work with uthash in the structs where needed
@@ -1383,6 +1383,13 @@ int UBSI_buffer(const char *buf)
 				lastGCSecond = lastLogSecond;
 		}
 
+		if(lastLogSecond > lastPrintSecond + 60)
+		{
+				long mem_usage;
+				mem_usage = print_mem_usage();
+				lastPrintSecond = lastLogSecond;
+				fprintf(stderr, "time %d: mem_usage: %ld Kb\n", lastLogSecond, mem_usage);
+		}
 }
 
 void UBSI_sig_handler(int signo)
@@ -1411,7 +1418,7 @@ void garbage_collect_mem_unit(int cur_second)
 		long mem_before, mem_after;
 		int th = cur_second + GC_TH;
 
-		mem_before = print_mem_usage();
+//		mem_before = print_mem_usage();
 
 		unit_table_t *cur_proc, *tmp_proc;
 		mem_proc_t *cur_mem_proc, *tmp_mem_proc;
@@ -1426,7 +1433,7 @@ void garbage_collect_mem_unit(int cur_second)
 		}
 		mem_after = print_mem_usage();
 		
-		freedMem += mem_before - mem_after;
-		fprintf(stderr, "Gargabe Collection (free %d items): Before %ld Kb, after %ld Kb (%ld Kb freed, total freed %ld Kb).\n", gced, mem_before, mem_after, mem_before - mem_after, freedMem);
+//		freedMem += mem_before - mem_after;
+//		fprintf(stderr, "Gargabe Collection (free %d items): Before %ld Kb, after %ld Kb (%ld Kb freed, total freed %ld Kb).\n", gced, mem_before, mem_after, mem_before - mem_after, freedMem);
 }
 
