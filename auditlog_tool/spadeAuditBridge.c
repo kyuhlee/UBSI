@@ -55,7 +55,8 @@ char filePath[256];
 char dirPath[256];
 char dirTimeBuf[256];
 time_t dirTime = 0;
-int last_log_second, last_gc_second;
+int lastLogSecond, lastGCSecond;
+long freedMem = 0;
 
 // UBSI Unit analysis
 #include <assert.h>
@@ -665,10 +666,10 @@ void get_timestamp(char *buf, int* seconds, int* millis)
 				sscanf(ptr+1, "%d", millis);
 			}
 		}
-		if(last_log_second == 0) {
-				last_gc_second = *seconds;
+		if(lastLogSecond == 0) {
+				lastGCSecond = *seconds;
 		}
-		last_log_second = *seconds;
+		lastLogSecond = *seconds;
 }
 
 // Reads timestamp from audit record and then sets the seconds and milliseconds to the thread_time struct ref passed
@@ -762,7 +763,8 @@ void delete_proc_hash(mem_proc_t *mem_proc)
 				}
 		}
 		mem_after = print_mem_usage();
-		if(freed > 0) fprintf(stderr, "(free %d) Before delete %ld KB, after %ld KB\n", freed, mem_before, mem_after);
+		freedMem += mem_before - mem_after;
+		if(freed > 0) fprintf(stderr, "Process terminated (free %d items): Before %ld Kb, after %ld Kb (%ld Kb freed, total freed %ld Kb).\n", freed, mem_before, mem_after, mem_before - mem_after, freedMem);
 }
 
 void loop_entry(unit_table_t *unit, long a1, char* buf, double time)
@@ -1376,9 +1378,9 @@ int UBSI_buffer(const char *buf)
 		}
 		
 		// Try garbage collection
-		if(last_log_second > (last_gc_second + GC_TH)) {
-				garbage_collect_mem_unit(last_log_second);
-				last_gc_second = last_log_second;
+		if(lastLogSecond > (lastGCSecond + GC_TH)) {
+				garbage_collect_mem_unit(lastLogSecond);
+				lastGCSecond = lastLogSecond;
 		}
 
 }
@@ -1423,7 +1425,8 @@ void garbage_collect_mem_unit(int cur_second)
 				}
 		}
 		mem_after = print_mem_usage();
-
-		fprintf(stderr, "Gargabe Collection (second: %d): %d items GCed (before mem %ld Kb, after %ld Kb).\n", cur_second, gced, mem_before, mem_after);
+		
+		freedMem += mem_before - mem_after;
+		fprintf(stderr, "Gargabe Collection (free %d items): Before %ld Kb, after %ld Kb (%ld Kb freed, total freed %ld Kb).\n", gced, mem_before, mem_after, mem_before - mem_after, freedMem);
 }
 
