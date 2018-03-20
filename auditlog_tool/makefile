@@ -1,7 +1,7 @@
 CC=g++
 CFLAGS=-g
 
-EXECUTABLE=analyzelog mergelog sortlog
+EXECUTABLE=analyzelog mergelog sortlog count_kill spadeAuditBridge
 
 all: $(EXECUTABLE)
 
@@ -13,6 +13,12 @@ mergelog: mergelog.cc
 
 sortlog: sortlog.cc
 		$(CC) $(CFLAGS) -o $@ $<
+
+count_kill: count_kill.cc
+		$(CC) $(CFLAGS) -o $@ $<
+
+spadeAuditBridge: spadeAuditBridge.c
+		gcc $(CFLAGS) -o $@ $<
 
 clean:
 		rm -f $(EXECUTABLE)
