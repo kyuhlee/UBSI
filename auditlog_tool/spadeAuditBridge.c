@@ -55,8 +55,8 @@ char filePath[256];
 char dirPath[256];
 char dirTimeBuf[256];
 time_t dirTime = 0;
-int lastLogSecond, lastGCSecond, lastPrintSecond;
-long freedMem = 0;
+double curLogTime, lastGCTime;
+int UBSIGCThreshold = 0;
 
 // UBSI Unit analysis
 #include <assert.h>
@@ -71,8 +71,6 @@ long freedMem = 0;
 typedef int bool;
 #define true 1
 #define false 0
-
-#define GC_TH 3000
 
 // A struct to keep time as reported in audit log. Upto milliseconds.
 // Doing it this way because double and long values don't seem to work with uthash in the structs where needed
@@ -124,6 +122,7 @@ typedef struct unit_table_t {
 		mem_unit_t *mem_unit; // mem_write_record in the unit
 		char proc[1024];
 		UT_hash_handle hh;
+		double last_active_time; // the last time it has activity. Use this for Garbage collection.
 } unit_table_t;
 
 typedef struct event_buf_t {
@@ -141,8 +140,32 @@ typedef struct iteration_count_t{
 	int count;
 } iteration_count_t;
 
+typedef struct thread_group_leader_t{
+		thread_t thread;
+		thread_t leader;
+		UT_hash_handle hh;
+} thread_group_leader_t;
+
+// child --> thread_group_leader
+typedef struct thread_hash_t{
+		thread_t thread;
+		UT_hash_handle hh;
+} thread_hash_t;
+
+/* thread_group_leader --> list of child threads
+// sys_exit:  clear all child threads data only if I am the thread leader
+// sys_exit_group: find thread leader and clear all child.
+*/
+typedef struct thread_group_t{
+		thread_t leader;
+		thread_hash_t *threads;
+		UT_hash_handle hh;
+} thread_group_t;
+
+thread_group_leader_t *thread_group_leader_hash;
+thread_group_t *thread_group_hash;
 // Maximum iterations that can be buffered during a single timestamp
-#define iteration_count_buffer_size 1000
+#define iteration_count_buffer_size 10000
 // Total number of iterations so far in the iteration_count buffer
 int current_time_iterations_index = 0;
 // A buffer to keep iteration_count objects for iterations
@@ -159,7 +182,14 @@ unit_table_t *unit_table;
 event_buf_t *event_buf;
 
 void syscall_handler(char *buf);
-void garbage_collect_mem_unit(int cur_second);
+
+// garbage collecting inactive processes
+void gc_inactive_processes();
+
+// Debugging
+long get_mem_usage();
+int count_processes(char *str);
+
 /*
 			Java does not support reading from Unix domain sockets.
 
@@ -181,6 +211,9 @@ void print_usage(char** argv) {
 		printf("  -t, --time                timestamp. Only handle log files modified after the timestamp. \n");
 		printf("                            This option is only valid with -d option. (format: YYYY-MM-DD:HH:MM:SS,\n");
 		printf("                              e.g., 2017-1-21:07:09:20)\n");
+		printf("  -g, --garbage-collection		garbage-collection threshold in seconds. \n");
+		printf("                            Perform garbage-collection to inactive processes. We assume that a process is\n");
+		printf("                            inactive if it does not have any activitiy more than N seconds.\n");
 		printf("  -h, --help                print this help and exit\n");
 		printf("\n");
 
@@ -200,10 +233,11 @@ int command_line_option(int argc, char **argv)
 				{"dir",				required_argument,	NULL, 'd'},
 				{"time",			required_argument,	NULL, 't'},
 				{"wait-for-end",	no_argument,		NULL, 'w'},
+				{"garbage-collection",	no_argument,		NULL, 'g'},
 				{NULL,				0,					NULL,	0}
 		};
 
-		while((c = getopt_long(argc, argv, "hus:F:f:d:t:w", long_opt, NULL)) != -1)
+		while((c = getopt_long(argc, argv, "hus:F:f:d:t:w:g:", long_opt, NULL)) != -1)
 		{
 				switch(c)
 				{
@@ -224,7 +258,7 @@ int command_line_option(int argc, char **argv)
 								strncpy(dirPath, optarg, 256);
 								dirRead = TRUE;
 								break;
-	
+
 						case 't':
 								strncpy(dirTimeBuf, optarg, 256);
 								struct tm temp_tm;
@@ -244,6 +278,11 @@ int command_line_option(int argc, char **argv)
 								UBSIAnalysis = TRUE;
 								break;
 
+						case 'g':
+								UBSIGCThreshold = atoi(optarg);
+								fprintf(stderr, "Garbage-collection Threshold: %d second\n", UBSIGCThreshold);
+								break;
+
 						case 'h':
 								print_usage(argv);
 								exit(0);
@@ -254,28 +293,6 @@ int command_line_option(int argc, char **argv)
 				};
 		};
 
-}
-
-long print_mem_usage() 
-{
-		char tmp[1024];
-		long mem = 0;
-		FILE* fp_s = fopen( "/proc/self/status", "r" );
-		while(1) {
-				if(fp_s == NULL) {
-						fprintf(stderr, "ERROR: proc/self\n");
-						break;
-				}    
-				fgets(tmp, 1024, fp_s);
-				if(strncmp(tmp, "VmSize:", 7) == 0) { 
-						sscanf(tmp, "VmSize:\t%ld", &mem);
-						//fprintf(stderr, "MEMUSAGE %s: %s\n", str, tmp);
-						break;
-				}
-		}
-		fclose(fp_s);
-
-		return mem;
 }
 
 void socket_read(char *programName)
@@ -666,10 +683,6 @@ void get_timestamp(char *buf, int* seconds, int* millis)
 				sscanf(ptr+1, "%d", millis);
 			}
 		}
-		if(lastLogSecond == 0) {
-				lastGCSecond = *seconds;
-		}
-		lastLogSecond = *seconds;
 }
 
 // Reads timestamp from audit record and then sets the seconds and milliseconds to the thread_time struct ref passed
@@ -703,6 +716,7 @@ long get_eventid(char* buf){
 
 int emit_log(unit_table_t *ut, char* buf, bool print_unit, bool print_proc)
 {
+		if(print_proc && ut->proc[0] == '\0') return 0;
 		int rc = 0;
 
 		if(!print_unit && !print_proc) {
@@ -742,29 +756,16 @@ void delete_unit_hash(link_unit_t *hash_unit, mem_unit_t *hash_mem)
 						HASH_DEL(hash_mem, cur_mem); 
 				if(cur_mem) free(cur_mem);  
 		}
-
 }
 
 void delete_proc_hash(mem_proc_t *mem_proc)
 {
-		int freed = 0;
-		long mem_before, mem_after;
-
-		mem_before = print_mem_usage();
-
 		mem_proc_t *tmp_mem, *cur_mem;
 		HASH_ITER(hh, mem_proc, cur_mem, tmp_mem) {
-				if(mem_proc != cur_mem) {
+				if(mem_proc != cur_mem) 
 						HASH_DEL(mem_proc, cur_mem); 
-				}
-				if(cur_mem) {
-						free(cur_mem);  
-						freed++;
-				}
+				if(cur_mem) free(cur_mem);  
 		}
-		mem_after = print_mem_usage();
-		freedMem += mem_before - mem_after;
-		if(freed > 0) fprintf(stderr, "Process terminated (free %d items): Before %ld Kb, after %ld Kb (%ld Kb freed, total freed %ld Kb).\n", freed, mem_before, mem_after, mem_before - mem_after, freedMem);
 }
 
 void loop_entry(unit_table_t *unit, long a1, char* buf, double time)
@@ -838,13 +839,12 @@ void unit_entry(unit_table_t *unit, long a1, char* buf)
 
 void unit_end(unit_table_t *unit, long a1)
 {
-/*
+		if(unit == NULL) return;
 		struct link_unit_t *ut;
-
 		char *buf;
 		int buf_size;
+/*
 		int link_count = HASH_COUNT(unit->link_unit);
-
 
 		if(unit->valid == true || link_count > 1) {
 				buf_size = link_count * 200;
@@ -872,13 +872,25 @@ void unit_end(unit_table_t *unit, long a1)
 		unit->w_addr = 0;
 }
 
-void proc_end(unit_table_t *unit)
+void clear_proc(unit_table_t *unit)
 {
+		if(unit == NULL) return;
+
 		unit_end(unit, -1);
 		delete_proc_hash(unit->mem_proc);
 		unit->mem_proc = NULL;
+
+}
+
+void proc_end(unit_table_t *unit)
+{
+		if(unit == NULL) return;
+		clear_proc(unit);
+
 		HASH_DEL(unit_table, unit);
-		if(unit) free(unit);
+		free(unit);
+
+		return;
 }
 
 void proc_group_end(unit_table_t *unit)
@@ -886,26 +898,33 @@ void proc_group_end(unit_table_t *unit)
 		int pid = unit->pid;
 		unit_table_t *pt;
 
-		if(pid != unit->thread.tid) {
-				thread_t th;  
-				th.tid = pid; 
-				th.thread_time.seconds = thread_create_time[pid].seconds;
-				th.thread_time.milliseconds = thread_create_time[pid].milliseconds;
-				HASH_FIND(hh, unit_table, &th, sizeof(thread_t), pt); 
-				//HASH_FIND_INT(unit_table, &pid, pt);
-				proc_end(pt);
+		thread_group_leader_t *tgl;
+		thread_group_t *tg;
+		thread_hash_t *cur_t, *tmp_t;
+		unit_table_t *ut;
+
+		HASH_FIND(hh, thread_group_leader_hash, &(unit->thread), sizeof(thread_t), tgl);
+		if(tgl == NULL) return;
+		
+		HASH_FIND(hh, thread_group_hash, &(tgl->leader), sizeof(thread_t), tg);
+		if(tg == NULL)	return;
+		
+		HASH_ITER(hh, tg->threads, cur_t, tmp_t) {
+				HASH_FIND(hh, unit_table, &(cur_t->thread), sizeof(thread_t), ut); 
+				proc_end(ut);
 		}
 
-		proc_end(unit);
+		HASH_FIND(hh, unit_table, &(tgl->thread), sizeof(thread_t), ut); 
+		proc_end(ut);
 }
 
-/*void flush_all_unit()
+void flush_all_unit()
 {
 		unit_table_t *tmp_unit, *cur_unit;
 		HASH_ITER(hh, unit_table, cur_unit, tmp_unit) {
 				unit_end(cur_unit, -1);
 		}
-}*/
+}
 
 void mem_write(unit_table_t *ut, long int addr, char* buf)
 {
@@ -921,6 +940,7 @@ void mem_write(unit_table_t *ut, long int addr, char* buf)
 
 		// not duplicated write
 		umt = (mem_unit_t*) malloc(sizeof(mem_unit_t));
+		assert(umt);
 		umt->addr = addr;
 		HASH_ADD(hh, ut->mem_unit, addr, sizeof(long int),  umt);
 
@@ -936,7 +956,8 @@ void mem_write(unit_table_t *ut, long int addr, char* buf)
 				HASH_FIND(hh, unit_table, &th, sizeof(thread_t), pt); 
 				//HASH_FIND_INT(unit_table, &pid, pt);
 				if(pt == NULL) {
-						assert(1);
+						return; //
+						//assert(1);
 				}
 		}
 
@@ -944,6 +965,7 @@ void mem_write(unit_table_t *ut, long int addr, char* buf)
 		HASH_FIND(hh, pt->mem_proc, &addr, sizeof(long int), pmt);
 		if(pmt == NULL) {
 				pmt = (mem_proc_t*) malloc(sizeof(mem_proc_t));
+				assert(pmt);
 				pmt->addr = addr;
 				pmt->last_written_unit = ut->cur_unit;
 				HASH_ADD(hh, pt->mem_proc, addr, sizeof(long int),  pmt);
@@ -971,7 +993,8 @@ void mem_read(unit_table_t *ut, long int addr, char *buf)
 				HASH_FIND(hh, unit_table, &th, sizeof(thread_t), pt); 
 				//HASH_FIND_INT(unit_table, &pid, pt);
 				if(pt == NULL) {
-						assert(1);
+						return;
+						//assert(1);
 				}
 		}
 
@@ -988,6 +1011,7 @@ void mem_read(unit_table_t *ut, long int addr, char *buf)
 				if(lt == NULL) {
 						// emit the dependence.
 						lt = (link_unit_t*) malloc(sizeof(link_unit_t));
+						assert(lt);
 						lt->id = pmt->last_written_unit;
 						HASH_ADD(hh, ut->link_unit, id, sizeof(thread_unit_t), lt);
 
@@ -1003,6 +1027,7 @@ unit_table_t* add_unit(int tid, int pid, bool valid)
 {
 		struct unit_table_t *ut;
 		ut = malloc(sizeof(struct unit_table_t));
+		assert(ut);
 		//ut->tid = tid;
 		ut->thread.tid = tid;
 		ut->thread.thread_time.seconds = thread_create_time[tid].seconds;
@@ -1026,16 +1051,103 @@ unit_table_t* add_unit(int tid, int pid, bool valid)
 		return ut;
 }
 
+void print_thread_group(thread_t thread)
+{
+		thread_group_leader_t *ut;
+		thread_group_t *gt;
+		thread_hash_t *cur_t, *tmp_t;
+
+		HASH_FIND(hh, thread_group_leader_hash, &thread, sizeof(thread_t), ut);
+
+		fprintf(stdout, "THREAD_GROUP: thread %d\n", thread.tid);
+		if(ut == NULL) {
+				fprintf(stdout, "THREAD_GROUP: EMPTY!\n\n");
+				return;
+		}
+		
+		fprintf(stdout, "  Leader: %d\n", ut->leader.tid);
+
+		HASH_FIND(hh, thread_group_hash, &(ut->leader), sizeof(thread_t), gt);
+		if(gt == NULL) {
+				fprintf(stdout, "     NO child.\n\n");
+				return;
+		}
+		
+		HASH_ITER(hh, gt->threads, cur_t, tmp_t) {
+				fprintf(stdout, "     Child: %d\n", cur_t->thread.tid);
+		}
+		fprintf(stdout, "\n");
+}
+
+void set_thread_group(thread_t leader, thread_t child)
+{
+		thread_group_t *ut;
+		thread_hash_t *lt;
+
+		HASH_FIND(hh, thread_group_hash, &leader, sizeof(thread_t), ut);
+		if(ut == NULL) {
+				ut = malloc(sizeof(struct thread_group_t));
+				assert(ut);
+				ut->leader = leader;
+				ut->threads = NULL;
+
+				lt = malloc(sizeof(thread_hash_t));
+				assert(lt);
+				lt->thread = child;
+				HASH_ADD(hh, ut->threads, thread, sizeof(thread_t), lt);
+
+				HASH_ADD(hh, thread_group_hash, leader, sizeof(thread_t), ut);
+		} else {
+				HASH_FIND(hh, ut->threads, &child, sizeof(thread_t), lt);
+				if(lt == NULL) {
+						lt = malloc(sizeof(thread_hash_t));
+						assert(lt);
+						lt->thread = child;
+						HASH_ADD(hh, ut->threads, thread, sizeof(thread_t), lt);
+				}
+		}
+}
+
+thread_group_leader_t* add_thread_group_leader(thread_t thread, thread_t leader)
+{
+		thread_group_leader_t *ut = malloc(sizeof(struct thread_group_leader_t));
+		assert(ut);
+		ut->thread = thread;
+		ut->leader = leader;
+		
+		HASH_ADD(hh, thread_group_leader_hash, thread, sizeof(thread_t), ut);
+
+		return ut;
+}
+
+void set_thread_group_leader(thread_t child, thread_t parent)
+{
+		thread_group_leader_t *ut;
+		HASH_FIND(hh, thread_group_leader_hash, &child, sizeof(thread_t), ut);
+
+		if(ut != NULL) return; // child is already in the hash
+
+		HASH_FIND(hh, thread_group_leader_hash, &parent, sizeof(thread_t), ut);
+		if(ut == NULL) {
+				// parent is not in the hash
+				ut = add_thread_group_leader(parent, parent);
+		}
+		
+		ut = add_thread_group_leader(child, ut->leader);
+
+		set_thread_group(ut->leader, child);
+}
+
 void set_pid(int tid, int pid)
 {
 		struct unit_table_t *ut;
 		int ppid;
 
-		thread_t th; 
-		th.tid = pid; 
-		th.thread_time.seconds = thread_create_time[pid].seconds;
-		th.thread_time.milliseconds = thread_create_time[pid].milliseconds;
-		HASH_FIND(hh, unit_table, &th, sizeof(thread_t), ut);  /* looking for parent thread's pid */
+		thread_t th_child, th_parent; 
+		th_parent.tid = pid; 
+		th_parent.thread_time.seconds = thread_create_time[pid].seconds;
+		th_parent.thread_time.milliseconds = thread_create_time[pid].milliseconds;
+		HASH_FIND(hh, unit_table, &th_parent, sizeof(thread_t), ut);  /* looking for parent thread's pid */
 		//HASH_FIND_INT(unit_table, &pid, ut);  /* looking for parent thread's pid */
 
 		if(ut == NULL) ppid = pid;
@@ -1043,16 +1155,19 @@ void set_pid(int tid, int pid)
 
 		ut = NULL;
 
-		th.tid = tid; 
-		th.thread_time.seconds = thread_create_time[tid].seconds;
-		th.thread_time.milliseconds = thread_create_time[tid].milliseconds;
-		HASH_FIND(hh, unit_table, &th, sizeof(thread_t), ut);  /* id already in the hash? */
+		th_child.tid = tid; 
+		th_child.thread_time.seconds = thread_create_time[tid].seconds;
+		th_child.thread_time.milliseconds = thread_create_time[tid].milliseconds;
+		HASH_FIND(hh, unit_table, &th_child, sizeof(thread_t), ut);  /* id already in the hash? */
 		//HASH_FIND_INT(unit_table, &tid, ut);  /* id already in the hash? */
 		if (ut == NULL) {
-				ut = add_unit(tid, ppid, 0); 
+				ut = add_unit(tid, ppid, 0);
 		} else {
 				ut->pid = ppid;
 		}
+
+		set_thread_group_leader(th_child, th_parent);
+		//print_thread_group(th_child);
 }
 
 void UBSI_event(long tid, long a0, long a1, char *buf)
@@ -1071,6 +1186,8 @@ void UBSI_event(long tid, long a0, long a1, char *buf)
 				ut = add_unit(tid, tid, 0);
 		}
 
+		ut->last_active_time = get_timestamp_double(buf);
+		curLogTime = ut->last_active_time;
 		switch(a0) {
 				case UENTRY: 
 						if(ut->valid) unit_end(ut, a1);
@@ -1122,6 +1239,9 @@ void non_UBSI_event(long tid, int sysno, bool succ, char *buf)
 				ut = add_unit(tid, tid, 0);
 		}
 
+		ut->last_active_time = get_timestamp_double(buf);
+		curLogTime = ut->last_active_time;
+
 		emit_log(ut, buf, false, false);
 
 		if(succ == true && (sysno == 56 || sysno == 57 || sysno == 58)) // clone or fork
@@ -1138,8 +1258,10 @@ void non_UBSI_event(long tid, int sysno, bool succ, char *buf)
 		} else if(succ == true && ( sysno == 59 || sysno == 322 || sysno == 60 || sysno == 231)) { // execve, exit or exit_group
 				if(sysno == 231) { // exit_group call
 						proc_group_end(ut);
-				} else {
+				} else if(sysno == 60) {
 						proc_end(ut);
+				} else {
+						clear_proc(ut);
 						if(sysno == 59){ // execve
 								set_thread_time(buf, &thread_create_time[tid]);
 								// updated start time to the time when execve happened. Done to reflect what happens in Audit reporter.
@@ -1177,60 +1299,73 @@ bool get_succ(char *buf)
 }
 
 void ubsi_intercepted_handler(char* buf){
-	
-	char tmp[1024];
-	char* ptr_start;
-	char* ptr_end;
-	int tmp_current_index = 0;
-	
-	memset(&tmp[0], 0, 1024);
-	
-	ptr_start = buf;
-	
-	if(ptr_start != NULL){
-		ptr_end = strstr(buf, "ubsi_intercepted=");
-	
-		if(ptr_end != NULL){			
-			tmp_current_index = (ptr_end - ptr_start);
-			strncpy(&tmp[0], buf, tmp_current_index);
-			
-			ptr_start = strstr(buf, "syscall=");
-		
-			if(ptr_start != NULL){
-				strncpy(&tmp[tmp_current_index], ptr_start, (&buf[strlen(buf)] - ptr_start - 2));
+
+		char* tmp;
+		char* ptr_start;
+		char* ptr_end;
+		int tmp_current_index = 0;
+		int buf_len;
+
+		ptr_start = buf;
+
+		if(ptr_start != NULL){
+				buf_len = strlen(buf) + 1; // null char
+				tmp = (char*)malloc(sizeof(char)*buf_len);
 				
-				tmp[strlen(&tmp[0])] = '\n';
-				
-				syscall_handler(&tmp[0]);
-			}else{
-				fprintf(stderr, "ERROR: Malformed UBSI record: 'syscall' not found\n");	
-			}
+				if(tmp != NULL){
+					memset(tmp, 0, buf_len);
+					
+					ptr_end = strstr(buf, "ubsi_intercepted=");
+
+					if(ptr_end != NULL){			
+							tmp_current_index = (ptr_end - ptr_start);
+							strncpy(&tmp[0], buf, tmp_current_index);
+
+							ptr_start = strstr(buf, "syscall=");
+
+							if(ptr_start != NULL){
+									strncpy(&tmp[tmp_current_index], ptr_start, (&buf[strlen(buf)] - ptr_start - 2));
+
+									tmp[strlen(tmp)] = '\n';
+
+									syscall_handler(tmp);
+							}else{
+									fprintf(stderr, "ERROR: Malformed UBSI record: 'syscall' not found\n");	
+							}
+					}else{
+							fprintf(stderr, "ERROR: Malformed UBSI record: 'ubsi_intercepted' not found\n");
+					}
+					free(tmp);
+				}else{
+					fprintf(stderr, "ERROR: Failed to allocate memory for 'ubsi_intercepted' record\n");	
+				}
 		}else{
-			fprintf(stderr, "ERROR: Malformed UBSI record: 'ubsi_intercepted' not found\n");
+				fprintf(stderr, "ERROR: NULL buffer in UBSI record handler\n");	
 		}
-	}else{
-		fprintf(stderr, "ERROR: NULL buffer in UBSI record handler\n");	
-	}
 }
 
 void syscall_handler(char *buf)
 {
 		char *ptr;
 		int sysno;
-		long a0, a1, pid;
+		long a0, a1, pid, ppid;
 		bool succ = false;
-		
+
 		ptr = strstr(buf, " syscall=");
 		if(ptr == NULL) {
-				printf("ptr = NULL: %s\n", buf);
+				fprintf(stderr, "ERROR: ptr = NULL: %s\n", buf);
 				return;
 		}
 		sysno = strtol(ptr+9, NULL, 10);
 		
+		ptr = strstr(ptr, " ppid=");
+		ppid = strtol(ptr+6, NULL, 10);
+
 		ptr = strstr(ptr, " pid=");
 		pid = strtol(ptr+5, NULL, 10);
 
 		succ = get_succ(buf);
+
 		// Syscall exit(60) and exit_group(231) do not return, thus do not have "success" field. They always succeed.
 		if(sysno == 60 || sysno == 231) succ=true; 
 		
@@ -1252,6 +1387,22 @@ void syscall_handler(char *buf)
 		} else {
 				non_UBSI_event(pid, sysno, succ, buf);
 		}
+
+		// Periodically print out memory usage for debugging
+
+#define PRINT_INTERVAL 60 // second
+		static double last_print_time = 0;
+		double cur_time = get_timestamp_double(buf);
+		long mem_usage;
+		int num_ff;
+
+		if(PRINT_INTERVAL > 0 && (cur_time - PRINT_INTERVAL > last_print_time)) {
+			 mem_usage = get_mem_usage();
+				num_ff = count_processes("firefox");
+				fprintf(stderr, "time, %lf, mem, %ld, Kb, firefox processes, %d\n", cur_time, mem_usage, num_ff); 
+				last_print_time = cur_time;
+		}
+
 }
 
 #define EVENT_LENGTH 1048576
@@ -1328,9 +1479,11 @@ int UBSI_buffer(const char *buf)
 									HASH_FIND_INT(event_buf, &id, eb);
 									if(eb == NULL) {
 											eb = (event_buf_t*) malloc(sizeof(event_buf_t));
+										 assert(eb);
 											eb->id = id;
 											//eb->event = (char*) malloc(sizeof(char) * EVENT_LENGTH);
 											eb->event = (char*) malloc(sizeof(char) * (event_byte+1));
+										 assert(eb->event);
 											eb->event_byte = event_byte;
 											strncpy(eb->event, event, event_byte+1);
 											HASH_ADD_INT(event_buf, id, eb);
@@ -1376,19 +1529,12 @@ int UBSI_buffer(const char *buf)
 						free(eb);
 				}
 		}
-		
-		// Try garbage collection
-		if(lastLogSecond > (lastGCSecond + GC_TH)) {
-				garbage_collect_mem_unit(lastLogSecond);
-				lastGCSecond = lastLogSecond;
-		}
-
-		if(lastLogSecond > lastPrintSecond + 60)
+		// Garbage collecting inactive processes
+		if(UBSIGCThreshold > 0 && 
+				  (lastGCTime < (curLogTime - UBSIGCThreshold)))
 		{
-				long mem_usage;
-				mem_usage = print_mem_usage();
-				lastPrintSecond = lastLogSecond;
-				fprintf(stderr, "time %d: mem_usage: %ld Kb\n", lastLogSecond, mem_usage);
+				gc_inactive_processes();
+				lastGCTime = curLogTime;
 		}
 }
 
@@ -1412,28 +1558,46 @@ int get_max_pid()
 		return max_pid;
 }
 
-void garbage_collect_mem_unit(int cur_second)
+void gc_inactive_processes()
 {
-		int gced = 0;
-		long mem_before, mem_after;
-		int th = cur_second + GC_TH;
-
-//		mem_before = print_mem_usage();
-
 		unit_table_t *cur_proc, *tmp_proc;
-		mem_proc_t *cur_mem_proc, *tmp_mem_proc;
 		HASH_ITER(hh, unit_table, cur_proc, tmp_proc) {
-				HASH_ITER(hh, cur_proc->mem_proc, cur_mem_proc, tmp_mem_proc) {
-						if(cur_mem_proc->last_written_unit.thread_time.seconds < th) {
-								HASH_DEL(cur_proc->mem_proc, cur_mem_proc);
-								free(cur_mem_proc);
-								gced++;
-						}
+				if(cur_proc->last_active_time < (curLogTime - UBSIGCThreshold))
+				{
+						proc_end(cur_proc);
 				}
 		}
-		mem_after = print_mem_usage();
-		
-//		freedMem += mem_before - mem_after;
-//		fprintf(stderr, "Gargabe Collection (free %d items): Before %ld Kb, after %ld Kb (%ld Kb freed, total freed %ld Kb).\n", gced, mem_before, mem_after, mem_before - mem_after, freedMem);
 }
 
+long get_mem_usage() 
+{
+		char tmp[1024];
+		long mem = 0; 
+		FILE* fp_s = fopen( "/proc/self/status", "r" );
+		while(1) {
+				if(fp_s == NULL) {
+						fprintf(stderr, "ERROR: proc/self\n");
+						break;
+				}    
+				fgets(tmp, 1024, fp_s);
+				if(strncmp(tmp, "VmSize:", 7) == 0) { 
+						sscanf(tmp, "VmSize:\t%ld", &mem);
+						//fprintf(stderr, "MEMUSAGE %s: %s\n", str, tmp);
+						break;
+				}    
+		}
+		fclose(fp_s);
+
+		return mem; 
+}
+
+int count_processes(char *str)
+{
+		int ret = 0;
+
+		unit_table_t *cur_proc, *tmp_proc;
+		HASH_ITER(hh, unit_table, cur_proc, tmp_proc) {
+				if(strstr(cur_proc->proc, str) != NULL) ret++;
+		}
+		return ret;
+}
