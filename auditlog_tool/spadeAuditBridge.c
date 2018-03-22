@@ -190,6 +190,40 @@ void gc_inactive_processes();
 long get_mem_usage();
 int count_processes(char *str);
 
+int memory_alloc[20];
+int memory_free[20];
+int memory_hash_del[20];
+void *UBSI_malloc(size_t size, int no) 
+{
+		memory_alloc[no]++;
+		return malloc(size);
+}
+
+void UBSI_free(void *ptr, int no)
+{
+		memory_free[no]++;
+		return free(ptr);
+}
+
+#define UBSI_HASH_DEL(root, ptr, no) \
+{ \
+		HASH_DEL(root, ptr); \
+		memory_hash_del[no]++; \
+}
+
+void print_memory_alloc()
+{
+		int i;
+		fprintf(stderr, "Alloc:");
+		for(i = 0; i < 12; i++) {
+				if(memory_hash_del[i] > 0) 
+						fprintf(stderr, "%d:%d/%d(%d), ",i, memory_alloc[i], memory_free[i], memory_hash_del[i]);
+				else 
+						fprintf(stderr, "%d:%d/%d, ",i, memory_alloc[i], memory_free[i]);
+		}
+		fprintf(stderr, "\n");
+}
+
 /*
 			Java does not support reading from Unix domain sockets.
 
@@ -564,7 +598,7 @@ int main(int argc, char *argv[]) {
 
 		max_pid = get_max_pid() + 1;
 		max_pid = max_pid*2;
-		thread_create_time = (thread_time_t*) malloc(sizeof(thread_time_t)*max_pid);
+		thread_create_time = (thread_time_t*) UBSI_malloc(sizeof(thread_time_t)*max_pid, 1);
 		for(i = 0; i < max_pid; i++) {
 				thread_create_time[i].seconds = 0;
 				thread_create_time[i].milliseconds = 0;
@@ -746,15 +780,15 @@ void delete_unit_hash(link_unit_t *hash_unit, mem_unit_t *hash_mem)
 		link_unit_t *tmp_unit, *cur_unit;
 		mem_unit_t *tmp_mem, *cur_mem;
 		HASH_ITER(hh, hash_unit, cur_unit, tmp_unit) {
-				if(hash_unit != cur_unit) 
-						HASH_DEL(hash_unit, cur_unit); 
-				if(cur_unit) free(cur_unit);  
+				//if(hash_unit != cur_unit) 
+				UBSI_HASH_DEL(hash_unit, cur_unit, 4); 
+				if(cur_unit) UBSI_free(cur_unit, 4);
 		}
 
 		HASH_ITER(hh, hash_mem, cur_mem, tmp_mem) {
-				if(hash_mem != cur_mem) 
-						HASH_DEL(hash_mem, cur_mem); 
-				if(cur_mem) free(cur_mem);  
+				//if(hash_mem != cur_mem) 
+				UBSI_HASH_DEL(hash_mem, cur_mem, 2); 
+				if(cur_mem) UBSI_free(cur_mem, 2);  
 		}
 }
 
@@ -762,9 +796,9 @@ void delete_proc_hash(mem_proc_t *mem_proc)
 {
 		mem_proc_t *tmp_mem, *cur_mem;
 		HASH_ITER(hh, mem_proc, cur_mem, tmp_mem) {
-				if(mem_proc != cur_mem) 
-						HASH_DEL(mem_proc, cur_mem); 
-				if(cur_mem) free(cur_mem);  
+				//if(mem_proc != cur_mem) 
+				UBSI_HASH_DEL(mem_proc, cur_mem, 3); 
+				if(cur_mem) UBSI_free(cur_mem, 3);
 		}
 }
 
@@ -885,10 +919,17 @@ void clear_proc(unit_table_t *unit)
 void proc_end(unit_table_t *unit)
 {
 		if(unit == NULL) return;
+
+		thread_group_leader_t *tgl;
+		HASH_FIND(hh, thread_group_leader_hash, &(unit->thread), sizeof(thread_t), tgl);
+		if(tgl) {
+				UBSI_HASH_DEL(thread_group_leader_hash, tgl, 8);
+				UBSI_free(tgl, 8);
+		}
 		clear_proc(unit);
 
-		HASH_DEL(unit_table, unit);
-		free(unit);
+		UBSI_HASH_DEL(unit_table, unit,5);
+		UBSI_free(unit, 5);
 
 		return;
 }
@@ -912,10 +953,15 @@ void proc_group_end(unit_table_t *unit)
 		HASH_ITER(hh, tg->threads, cur_t, tmp_t) {
 				HASH_FIND(hh, unit_table, &(cur_t->thread), sizeof(thread_t), ut); 
 				proc_end(ut);
+				UBSI_HASH_DEL(tg->threads, cur_t, 7);
+				UBSI_free(cur_t, 7);
 		}
 
 		HASH_FIND(hh, unit_table, &(tgl->thread), sizeof(thread_t), ut); 
 		proc_end(ut);
+
+		UBSI_HASH_DEL(thread_group_hash, tg, 6);
+		UBSI_free(tg, 6);
 }
 
 void flush_all_unit()
@@ -939,7 +985,7 @@ void mem_write(unit_table_t *ut, long int addr, char* buf)
 		}
 
 		// not duplicated write
-		umt = (mem_unit_t*) malloc(sizeof(mem_unit_t));
+		umt = (mem_unit_t*) UBSI_malloc(sizeof(mem_unit_t), 2);
 		assert(umt);
 		umt->addr = addr;
 		HASH_ADD(hh, ut->mem_unit, addr, sizeof(long int),  umt);
@@ -964,7 +1010,7 @@ void mem_write(unit_table_t *ut, long int addr, char* buf)
 		mem_proc_t *pmt;
 		HASH_FIND(hh, pt->mem_proc, &addr, sizeof(long int), pmt);
 		if(pmt == NULL) {
-				pmt = (mem_proc_t*) malloc(sizeof(mem_proc_t));
+				pmt = (mem_proc_t*) UBSI_malloc(sizeof(mem_proc_t),3);
 				assert(pmt);
 				pmt->addr = addr;
 				pmt->last_written_unit = ut->cur_unit;
@@ -1010,7 +1056,7 @@ void mem_read(unit_table_t *ut, long int addr, char *buf)
 				HASH_FIND(hh, ut->link_unit, &lid, sizeof(thread_unit_t), lt);
 				if(lt == NULL) {
 						// emit the dependence.
-						lt = (link_unit_t*) malloc(sizeof(link_unit_t));
+						lt = (link_unit_t*) UBSI_malloc(sizeof(link_unit_t),4);
 						assert(lt);
 						lt->id = pmt->last_written_unit;
 						HASH_ADD(hh, ut->link_unit, id, sizeof(thread_unit_t), lt);
@@ -1026,7 +1072,7 @@ void mem_read(unit_table_t *ut, long int addr, char *buf)
 unit_table_t* add_unit(int tid, int pid, bool valid)
 {
 		struct unit_table_t *ut;
-		ut = malloc(sizeof(struct unit_table_t));
+		ut = UBSI_malloc(sizeof(struct unit_table_t),5);
 		assert(ut);
 		//ut->tid = tid;
 		ut->thread.tid = tid;
@@ -1086,12 +1132,12 @@ void set_thread_group(thread_t leader, thread_t child)
 
 		HASH_FIND(hh, thread_group_hash, &leader, sizeof(thread_t), ut);
 		if(ut == NULL) {
-				ut = malloc(sizeof(struct thread_group_t));
+				ut = UBSI_malloc(sizeof(struct thread_group_t),6);
 				assert(ut);
 				ut->leader = leader;
 				ut->threads = NULL;
 
-				lt = malloc(sizeof(thread_hash_t));
+				lt = UBSI_malloc(sizeof(thread_hash_t), 7);
 				assert(lt);
 				lt->thread = child;
 				HASH_ADD(hh, ut->threads, thread, sizeof(thread_t), lt);
@@ -1100,7 +1146,7 @@ void set_thread_group(thread_t leader, thread_t child)
 		} else {
 				HASH_FIND(hh, ut->threads, &child, sizeof(thread_t), lt);
 				if(lt == NULL) {
-						lt = malloc(sizeof(thread_hash_t));
+						lt = UBSI_malloc(sizeof(thread_hash_t), 7);
 						assert(lt);
 						lt->thread = child;
 						HASH_ADD(hh, ut->threads, thread, sizeof(thread_t), lt);
@@ -1110,7 +1156,7 @@ void set_thread_group(thread_t leader, thread_t child)
 
 thread_group_leader_t* add_thread_group_leader(thread_t thread, thread_t leader)
 {
-		thread_group_leader_t *ut = malloc(sizeof(struct thread_group_leader_t));
+		thread_group_leader_t *ut = UBSI_malloc(sizeof(struct thread_group_leader_t), 8);
 		assert(ut);
 		ut->thread = thread;
 		ut->leader = leader;
@@ -1310,7 +1356,7 @@ void ubsi_intercepted_handler(char* buf){
 
 		if(ptr_start != NULL){
 				buf_len = strlen(buf) + 1; // null char
-				tmp = (char*)malloc(sizeof(char)*buf_len);
+				tmp = (char*)UBSI_malloc(sizeof(char)*buf_len, 9);
 				
 				if(tmp != NULL){
 					memset(tmp, 0, buf_len);
@@ -1335,7 +1381,7 @@ void ubsi_intercepted_handler(char* buf){
 					}else{
 							fprintf(stderr, "ERROR: Malformed UBSI record: 'ubsi_intercepted' not found\n");
 					}
-					free(tmp);
+					UBSI_free(tmp, 9);
 				}else{
 					fprintf(stderr, "ERROR: Failed to allocate memory for 'ubsi_intercepted' record\n");	
 				}
@@ -1401,6 +1447,7 @@ void syscall_handler(char *buf)
 				num_ff = count_processes("firefox");
 				fprintf(stderr, "time, %lf, mem, %ld, Kb, firefox processes, %d\n", cur_time, mem_usage, num_ff); 
 				last_print_time = cur_time;
+				//print_memory_alloc();
 		}
 
 }
@@ -1428,9 +1475,9 @@ int UBSI_buffer_flush()
 						} else {
 								printf("%s", eb->event);
 						}
-						HASH_DEL(event_buf, eb);
-						free(eb->event);
-						free(eb);
+						UBSI_HASH_DEL(event_buf, eb, 11);
+						UBSI_free(eb->event, 11);
+						UBSI_free(eb,10);
 				} 
 		}
 }
@@ -1478,11 +1525,11 @@ int UBSI_buffer(const char *buf)
 								if(id != -1){
 									HASH_FIND_INT(event_buf, &id, eb);
 									if(eb == NULL) {
-											eb = (event_buf_t*) malloc(sizeof(event_buf_t));
+											eb = (event_buf_t*) UBSI_malloc(sizeof(event_buf_t),10);
 										 assert(eb);
 											eb->id = id;
 											//eb->event = (char*) malloc(sizeof(char) * EVENT_LENGTH);
-											eb->event = (char*) malloc(sizeof(char) * (event_byte+1));
+											eb->event = (char*) UBSI_malloc(sizeof(char) * (event_byte+1), 11);
 										 assert(eb->event);
 											eb->event_byte = event_byte;
 											strncpy(eb->event, event, event_byte+1);
@@ -1524,9 +1571,9 @@ int UBSI_buffer(const char *buf)
 						} else {
 								printf("%s", eb->event);
 						}
-						HASH_DEL(event_buf, eb);
-						free(eb->event);
-						free(eb);
+						UBSI_HASH_DEL(event_buf, eb,11);
+						UBSI_free(eb->event, 11);
+						UBSI_free(eb, 10);
 				}
 		}
 		// Garbage collecting inactive processes
@@ -1535,6 +1582,7 @@ int UBSI_buffer(const char *buf)
 		{
 				gc_inactive_processes();
 				lastGCTime = curLogTime;
+				print_memory_alloc();
 		}
 }
 
