@@ -137,26 +137,26 @@ int main(int argc, char** argv)
 
 		for(int i = 0; i < MAX; i++)
 		{
-				if(uread[i] > 0) printf("MREAD[%d] = %ld (%.2f\%)\n", i, uread[i], (float)(uread[i]*100) / (float) total);
+				if(uread[i] > 0) printf("MREAD[%d] = %ld (%.2f%%)\n", i, uread[i], (float)(uread[i]*100) / (float)total);
 				if(i <= 2) old_read += uread[i];
 				else new_read += uread[i];
 		}
 
 		for(int i = 0; i < MAX; i++)
 		{
-				if(uwrite[i] > 0) printf("MWRITE[%d] = %ld (%.2f\%)\n", i, uwrite[i], (float)(uwrite[i]*100) / (float)total);
+				if(uwrite[i] > 0) printf("MWRITE[%d] = %ld (%.2f%%)\n", i, uwrite[i], (float)(uwrite[i]*100) / (float)total);
 				if(i <= 3) old_write += uwrite[i];
 				else new_write += uwrite[i];
 		}
 
-		printf("UENTRY = %ld (%.2f\%)\n", uentry, (float)(uentry*100) / (float)total);
-		printf("UEXIT = %ld (%.2f\%)\n", uexit, (float)(uexit*100) / (float)total);
-		printf("Other Syscall = %ld (%.2f\%)\n", other, (float)(other*100) / (float)total);
-		printf("Total Syscall = %ld (%.2f\%)\n", total, (float)(total*100) / (float)total);
+		printf("UENTRY = %ld (%.2f%%)\n", uentry, (float)(uentry*100) / (float)total);
+		printf("UEXIT = %ld (%.2f%%)\n", uexit, (float)(uexit*100) / (float)total);
+		printf("Other Syscall = %ld (%.2f%%)\n", other, (float)(other*100) / (float)total);
+		printf("Total Syscall = %ld (%.2f%%)\n", total, (float)(total*100) / (float)total);
 
-		printf("Old MREAD = %ld (%.2f\%)\n", old_read, (float)(old_read*100) / (float)total);
-		printf("New MREAD = %ld (%.2f\%)\n", new_read, (float)(new_read*100) / (float)total);
-		printf("Old MWRITE = %ld (%.2f\%)\n", old_write, (float)(old_write*100) / (float)total);
-		printf("New MWRITE = %ld (%.2f\%)\n", new_write, (float)(new_write*100) / (float)total);
+		printf("Old MREAD = %ld (%.2f%%)\n", old_read, (float)(old_read*100) / (float)total);
+		printf("New MREAD = %ld (%.2f%%)\n", new_read, (float)(new_read*100) / (float)total);
+		printf("Old MWRITE = %ld (%.2f%%)\n", old_write, (float)(old_write*100) / (float)total);
+		printf("New MWRITE = %ld (%.2f%%)\n", new_write, (float)(new_write*100) / (float)total);
 
 }
