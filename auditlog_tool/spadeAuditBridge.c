@@ -68,10 +68,11 @@ int UBSIGCThreshold = 0;
 #define MWRITE1 0xfffffed4
 #define MWRITE2 0xfffffed3
 
-typedef int bool;
+typedef char bool;
 #define true 1
 #define false 0
 
+#define MAX_SIGNO 50
 // A struct to keep time as reported in audit log. Upto milliseconds.
 // Doing it this way because double and long values don't seem to work with uthash in the structs where needed
 typedef struct thread_time_t{
@@ -121,8 +122,9 @@ typedef struct unit_table_t {
 		mem_proc_t *mem_proc;
 		mem_unit_t *mem_unit; // mem_write_record in the unit
 		char proc[1024];
-		UT_hash_handle hh;
 		double last_active_time; // the last time it has activity. Use this for Garbage collection.
+		bool signal_handler[MAX_SIGNO];
+		UT_hash_handle hh;
 } unit_table_t;
 
 typedef struct event_buf_t {
@@ -191,6 +193,7 @@ void gc_inactive_processes();
 // Debugging
 long get_mem_usage();
 int count_processes(char *str);
+int count_processes_detail(char *str);
 
 int memory_alloc[20];
 int memory_free[20];
@@ -611,6 +614,13 @@ int main(int argc, char *argv[]) {
 		else if(dirRead) dir_read();
 		else read_log(stdin, "stdin");
 
+		long mem_usage;
+		int num_ff;
+			 mem_usage = get_mem_usage();
+				num_ff = count_processes_detail("firefox");
+				fprintf(stderr, "Final: mem, %ld, Kb, firefox processes, %d\n", mem_usage, num_ff); 
+				//print_memory_alloc();
+
 		return 0;
 }
 
@@ -942,7 +952,8 @@ void clear_proc(unit_table_t *unit)
 void proc_end(unit_table_t *unit)
 {
 		if(unit == NULL) return;
-
+		
+		int pid = unit->pid;
 		thread_group_leader_t *tgl;
 		HASH_FIND(hh, thread_group_leader_hash, &(unit->thread), sizeof(thread_t), tgl);
 		if(tgl) {
@@ -953,7 +964,7 @@ void proc_end(unit_table_t *unit)
 
 		UBSI_HASH_DEL(unit_table, unit,5);
 		UBSI_free(unit, 5);
-
+		
 		return;
 }
 
@@ -961,17 +972,23 @@ void proc_group_end(unit_table_t *unit)
 {
 		int pid = unit->pid;
 		unit_table_t *pt;
-
+		
 		thread_group_leader_t *tgl;
 		thread_group_t *tg;
 		thread_hash_t *cur_t, *tmp_t;
 		unit_table_t *ut;
 
 		HASH_FIND(hh, thread_group_leader_hash, &(unit->thread), sizeof(thread_t), tgl);
-		if(tgl == NULL) return;
+		if(tgl == NULL) {
+				proc_end(unit);
+				return;
+		}
 		
 		HASH_FIND(hh, thread_group_hash, &(tgl->leader), sizeof(thread_t), tg);
-		if(tg == NULL)	return;
+		if(tg == NULL)	{
+				proc_end(unit);
+				return;
+		}
 		
 		HASH_ITER(hh, tg->threads, cur_t, tmp_t) {
 				HASH_FIND(hh, unit_table, &(cur_t->thread), sizeof(thread_t), ut); 
@@ -1097,6 +1114,7 @@ void mem_read(unit_table_t *ut, long int addr, char *buf)
 unit_table_t* add_unit(int tid, int pid, bool valid)
 {
 		struct unit_table_t *ut;
+		int i;
 		ut = UBSI_malloc(sizeof(struct unit_table_t),5);
 		assert(ut);
 		//ut->tid = tid;
@@ -1105,7 +1123,7 @@ unit_table_t* add_unit(int tid, int pid, bool valid)
 		ut->thread.thread_time.milliseconds = thread_create_time[tid].milliseconds;
 		ut->pid = pid;
 		ut->valid = valid;
-
+		
 		ut->cur_unit.tid = tid;
 		ut->cur_unit.thread_time.seconds = thread_create_time[tid].seconds;
 		ut->cur_unit.thread_time.milliseconds = thread_create_time[tid].milliseconds;
@@ -1117,6 +1135,10 @@ unit_table_t* add_unit(int tid, int pid, bool valid)
 		ut->link_unit = NULL;
 		ut->mem_proc = NULL;
 		ut->mem_unit = NULL;
+		bzero(ut->proc, 1024);
+		for(i = 0; i < MAX_SIGNO; i++) {
+				ut->signal_handler[i] = false;
+		}
 		//HASH_ADD_INT(unit_table, tid, ut);
 		HASH_ADD(hh, unit_table, thread, sizeof(thread_t), ut);
 		return ut;
@@ -1293,7 +1315,7 @@ void UBSI_event(long tid, long a0, long a1, char *buf)
 void non_UBSI_event(long tid, int sysno, bool succ, char *buf)
 {
 		char *ptr;
-		long a2;
+		long a0, a1, a2;
 		long ret;
 		int time;
 
@@ -1312,7 +1334,12 @@ void non_UBSI_event(long tid, int sysno, bool succ, char *buf)
 
 		ut->last_active_time = get_timestamp_double(buf);
 		curLogTime = ut->last_active_time;
-
+		// for debugging
+		if(ut->proc[0] == '\0') {
+				ptr = strstr(buf, "comm=");
+				strncpy(ut->proc, ptr, 1024);
+		}
+		// end debugging
 		emit_log(ut, buf, false, false);
 
 		if(succ == true && (sysno == 56 || sysno == 57 || sysno == 58)) // clone or fork
@@ -1323,9 +1350,19 @@ void non_UBSI_event(long tid, int sysno, bool succ, char *buf)
 				ptr = strstr(buf, " exit=");
 				if(ptr == NULL) return;
 				ret = strtol(ptr+6, NULL, 10);
+				
+				unit_table_t *child_ut;
+				thread_t child_th;
+				child_th.tid = ret;
+				child_th.thread_time.seconds = thread_create_time[ret].seconds;
+				child_th.thread_time.milliseconds = thread_create_time[ret].milliseconds;
+				HASH_FIND(hh, unit_table, &child_th, sizeof(thread_t), child_ut); 
+				
+				if(child_ut != NULL) proc_end(child_ut);
 
 				set_thread_time(buf, &thread_create_time[ret]); /* set thread_create_time */
-				if(a2 > 0) { // thread_creat event
+				//if(ret == 11598) fprintf(stderr, "set_thread_time: pid %d, %d.%d\n", 11598, thread_create_time[11598], thread_create_time[11598]);
+				if(sysno == 56 && a2 > 0) { // thread_creat event
 						set_pid(ret, tid);
 				}
 		} else if(succ == true && ( sysno == 59 || sysno == 322 || sysno == 60 || sysno == 231)) { // execve, exit or exit_group
@@ -1334,9 +1371,13 @@ void non_UBSI_event(long tid, int sysno, bool succ, char *buf)
 				} else if(sysno == 60) {
 						proc_end(ut);
 				} else {
-						clear_proc(ut);
+						//clear_proc(ut);
+						proc_end(ut);
 						if(sysno == 59){ // execve
 								set_thread_time(buf, &thread_create_time[tid]);
+								//ut->thread.thread_time.seconds = thread_create_time[tid].seconds;
+								//ut->thread.thread_time.milliseconds = thread_create_time[tid].milliseconds;
+								//if(ret == 11598) fprintf(stderr, "set_thread_time: pid %d, %d.%d\n", 11598, thread_create_time[11598], thread_create_time[11598]);
 								// updated start time to the time when execve happened. Done to reflect what happens in Audit reporter.
 						}
 				}
@@ -1345,14 +1386,60 @@ void non_UBSI_event(long tid, int sysno, bool succ, char *buf)
 						// The zero condition is used to set seen time for process otherwise it would be updated each time.
 						thread_create_time[tid].seconds = thread_create_time[tid].milliseconds = 0;
 				}
+		} else if(succ == true && sysno == 62) {
+
+				ptr = strstr(buf, " a0=");
+				if(ptr == NULL) return;
+				a0 = strtol(ptr+4, NULL, 16);
+				ptr = strstr(ptr, " a1=");
+				if(ptr == NULL) return;
+				a1 = strtol(ptr+4, NULL, 16);
+
+				// clear target process' memory if kill syscall with SIGINT or SIGKILL or SIGTERM
+				// It might cause false negative if the taget process has custom signal hander for SIGTERM or SIGINT
+				if(a1 == SIGINT || a1 == SIGKILL || a1 == SIGTERM) { 
+						unit_table_t *target_ut;
+						thread_t target_thread;
+						target_thread.tid = a0;
+						target_thread.thread_time.seconds = thread_create_time[a0].seconds;
+						target_thread.thread_time.milliseconds = thread_create_time[a0].milliseconds;
+
+						HASH_FIND(hh, unit_table, &target_thread, sizeof(thread_t), target_ut);
+						if(target_ut == NULL) return;
+						if(a1 < MAX_SIGNO) {
+								if(target_ut->signal_handler[a1] == true) return; // If the target process has signal handler, ignore the signal.
+						}
+
+						thread_group_leader_t *target_tgl;
+						HASH_FIND(hh, thread_group_leader_hash, &(target_thread), sizeof(thread_t), target_tgl);
+						if(target_tgl == NULL) proc_end(target_ut);
+						else proc_group_end(target_ut);
+				}
+		} else if(succ == true && sysno == 13) {  // SYS_rt_sigaction. If the thread has signal handlers, signals will not kill it.
+				ptr = strstr(buf, " a1=");
+				if(ptr == NULL) return;
+				a1 = strtol(ptr+4, NULL, 16);
+				if(a1 == 0) return;
+
+				ptr = strstr(buf, " a0=");
+				if(ptr == NULL) return;
+				a0 = strtol(ptr+4, NULL, 16);
+				
+				if(a0 > MAX_SIGNO) {
+						return;
+				}
+				ut->signal_handler[a0] = true;
 		}
 }
 
-bool get_succ(char *buf)
+bool get_succ(char *buf, int sysno)
 {
 		char *ptr;
 		char succ[16];
 		int i=0;
+
+// Syscall exit(60) and exit_group(231) do not return, thus do not have "success" field. They always succeed.
+		if(sysno == 60 || sysno == 231) return true; 
 
 		ptr = strstr(buf, " success=");
 		if(ptr == NULL) {
@@ -1446,10 +1533,7 @@ void syscall_handler(char *buf)
 		if(ptr == NULL) return;
 		pid = strtol(ptr+5, NULL, 10);
 
-		succ = get_succ(buf);
-
-		// Syscall exit(60) and exit_group(231) do not return, thus do not have "success" field. They always succeed.
-		if(sysno == 60 || sysno == 231) succ=true; 
+		succ = get_succ(buf, sysno);
 		
 		// Set seen time here if not already set. thread_create_time is used in the functions below.
 		set_thread_seen_time_conditionally(pid, buf);
@@ -1684,6 +1768,20 @@ int count_processes(char *str)
 		unit_table_t *cur_proc, *tmp_proc;
 		HASH_ITER(hh, unit_table, cur_proc, tmp_proc) {
 				if(strstr(cur_proc->proc, str) != NULL) ret++;
+		}
+		return ret;
+}
+
+int count_processes_detail(char *str)
+{
+		int ret = 0;
+
+		unit_table_t *cur_proc, *tmp_proc;
+		HASH_ITER(hh, unit_table, cur_proc, tmp_proc) {
+				if(str == NULL || strstr(cur_proc->proc, str) != NULL) {
+						fprintf(stderr, "[pid %d:%d.%d], [%d,%d,%d]: %s", cur_proc->thread.tid, cur_proc->thread.thread_time.seconds, cur_proc->thread.thread_time.milliseconds, HASH_COUNT(cur_proc->link_unit), HASH_COUNT(cur_proc->mem_proc), HASH_COUNT(cur_proc->mem_unit), cur_proc->proc);
+						ret++;
+				}
 		}
 		return ret;
 }
