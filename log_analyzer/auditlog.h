@@ -214,7 +214,7 @@ extern INT max_log_num;
 
 //graph
 void graph_init();
-void graph_fini(char* arg);
+void graph_fini();
 string graph_add_processNode(INT pid, string comman);
 string graph_add_fileNode(string name);
 string graph_add_socketNode(string name);

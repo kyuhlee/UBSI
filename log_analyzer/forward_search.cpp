@@ -612,7 +612,7 @@ int main(int argc, char** argv)
 	open_log();
 	forward_search();
 	//reverse_log();
-	graph_fini(argv[2]);
+	graph_fini();
 	//print_dep_units();
 }
 
