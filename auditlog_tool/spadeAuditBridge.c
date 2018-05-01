@@ -58,6 +58,21 @@ time_t dirTime = 0;
 double curLogTime, lastGCTime;
 int UBSIGCThreshold = 0;
 
+typedef struct {
+		long int total;
+		long int outOfUnit;
+		long int dep;
+		long int dup;
+		long int notUsed;
+		long int sameUnit;
+		long int cacheHit;
+  long int blMiss;
+		long int incomplete;
+		long int loc[20];
+} MEMSTAT; 
+
+MEMSTAT memRead, memWrite;
+long int unitEntry, unitExit, regSyscall;
 // UBSI Unit analysis
 #include <assert.h>
 #include "uthash.h"
@@ -65,8 +80,10 @@ int UBSIGCThreshold = 0;
 #define UEXIT 0xffffff9b
 #define MREAD1 0xffffff38
 #define MREAD2 0xffffff37
+#define MREAD3 0xffffff36
 #define MWRITE1 0xfffffed4
 #define MWRITE2 0xfffffed3
+#define MWRITE3 0xfffffed2
 
 typedef char bool;
 #define true 1
@@ -97,6 +114,7 @@ typedef struct link_unit_t { // list of dependent units
 typedef struct mem_proc_t {
 		long int addr;
 		thread_unit_t last_written_unit;
+		bool hasUsed;
 		UT_hash_handle hh;
 } mem_proc_t;
 
@@ -109,6 +127,11 @@ typedef struct thread_t {
 		int tid; // pid in auditlog which is actually thread_id.
 		thread_time_t thread_time; // thread create time. seconds and milliseconds.
 } thread_t;
+
+typedef struct cache_t {
+		long int addr;
+		UT_hash_handle hh;
+} cache_t;
 
 typedef struct unit_table_t {
 		thread_t thread;
@@ -124,6 +147,9 @@ typedef struct unit_table_t {
 		char proc[1024];
 		double last_active_time; // the last time it has activity. Use this for Garbage collection.
 		bool signal_handler[MAX_SIGNO];
+		cache_t *write_cache;
+		cache_t *read_cache;
+		bool bl_table[4][65536];
 		UT_hash_handle hh;
 } unit_table_t;
 
@@ -187,6 +213,7 @@ bool incomplete_record = false;
 
 void syscall_handler(char *buf);
 
+void clear_proc(unit_table_t *unit);
 // garbage collecting inactive processes
 void gc_inactive_processes();
 
@@ -584,6 +611,60 @@ void dir_read()
 		}
 }
 
+void clear_remains()
+{
+
+		unit_table_t *cur, *tmp;
+		HASH_ITER(hh, unit_table, cur, tmp) {
+				proc_end(cur);
+		/*		clear_proc(cur);
+				UBSI_HASH_DEL(unit_table, cur, 5);
+				UBSI_free(cur, 5);
+				*/
+		}
+}
+
+void print_mem_stat()
+{
+		long int total = memWrite.total + memRead.total + unitEntry + unitExit + regSyscall;
+
+		fprintf(stderr, "\n\nTotal Events, %ld\n", total);
+		fprintf(stderr, "MemWrite, %ld, %.2f%%\n", memWrite.total, (float)(memWrite.total*100)/total);
+		fprintf(stderr, "MemRead, %ld, %.2f%%\n", memRead.total, (float)(memRead.total*100)/total);
+		fprintf(stderr, "Unit entry, %ld, %.2f%%\n", unitEntry, (float)(unitEntry*100)/total);
+		fprintf(stderr, "Unit exit, %ld, %.2f%%\n", unitExit, (float)(unitExit*100)/total);
+		fprintf(stderr, "regSyscall, %ld, %.2f%%\n\n", regSyscall, (float)(regSyscall*100)/total);
+
+		fprintf(stderr, "MemWrite, %ld\n", memWrite.total);
+		fprintf(stderr, "outOfUnit, %ld, %.2f%%\n", memWrite.outOfUnit, (float)(memWrite.outOfUnit*100)/memWrite.total);
+		fprintf(stderr, "Dup, %ld, %.2f%%\n", memWrite.dup, (float)(memWrite.dup*100)/memWrite.total);
+		fprintf(stderr, "cacheHit, %ld, %.2f%%\n", memWrite.cacheHit, (float)(memWrite.cacheHit*100)/memWrite.total);
+		fprintf(stderr, "NotUsed, %ld, %.2f%%\n", memWrite.notUsed, (float)(memWrite.notUsed*100)/memWrite.total);
+		fprintf(stderr, "Dep, %ld, %.2f%%\n\n", memWrite.dep, (float)(memWrite.dep*100)/memWrite.total);
+
+		fprintf(stderr, "MemRead, %ld\n", memRead.total);
+		fprintf(stderr, "outOfUnit, %ld, %.2f%%\n", memRead.outOfUnit, (float)(memRead.outOfUnit*100)/memRead.total);
+		fprintf(stderr, "neverWritten, %ld, %.2f%%\n", memRead.notUsed, (float)(memRead.notUsed*100)/memRead.total);
+		fprintf(stderr, "incomplete, %ld, %.2f%%\n", memRead.incomplete, (float)(memRead.incomplete*100)/memRead.total);
+		fprintf(stderr, "Dup, %ld, %.2f%%\n", memRead.dup, (float)(memRead.dup*100)/memRead.total);
+		fprintf(stderr, "Dep, %ld, %.2f%%\n", memRead.dep, (float)(memRead.dep*100)/memRead.total);
+		fprintf(stderr, "sameUnit, %ld, %.2f%%\n", memRead.sameUnit, (float)(memRead.sameUnit*100)/memRead.total);
+		fprintf(stderr, "cacheHit, %ld, %.2f%%\n", memRead.cacheHit, (float)(memRead.cacheHit*100)/memRead.total);
+		fprintf(stderr, "blMiss, %ld, %.2f%%\n\n", memRead.blMiss, (float)(memRead.blMiss*100)/memRead.total);
+
+		int i;
+		for(i = 0; i < 20; i++)
+		{
+				if(memRead.loc[i] > 0) fprintf(stderr, "memRead[%d], %ld, %.2f%%\n", 
+						i, memRead.loc[i], (float)(memRead.loc[i]*100) / memRead.total);
+		}
+		for(i = 0; i < 20; i++)
+		{
+				if(memWrite.loc[i] > 0) fprintf(stderr, "memWrite.loc[%d], %ld, %.2f%%\n", 
+						i, memWrite.loc[i], (float)(memWrite.loc[i]*100) / memWrite.total);
+		}
+}
+
 int main(int argc, char *argv[]) {
 		int max_pid, i;
 		char *programName = argv[0];
@@ -614,15 +695,112 @@ int main(int argc, char *argv[]) {
 		else if(dirRead) dir_read();
 		else read_log(stdin, "stdin");
 
+		clear_remains();			
 		long mem_usage;
 		int num_ff;
 			 mem_usage = get_mem_usage();
 				num_ff = count_processes_detail("firefox");
 				fprintf(stderr, "Final: mem, %ld, Kb, firefox processes, %d\n", mem_usage, num_ff); 
 				//print_memory_alloc();
-
+		
+		print_mem_stat();
 		return 0;
 }
+
+long int bl_hash(long int val) 
+{
+		if(val == 0) return 0;
+		uint16_t h = 0x5AA5;
+  h = h * 131 + val;
+  h = h * 131 + (val >> 16);
+  h = h * 131 + (val >> 32);
+  h = h * 131 + (val >> 48);
+	/*	h = h * 131 + parts[0];
+		h = h * 131 + parts[1];
+		h = h * 131 + parts[2];
+		h = h * 131 + parts[3];
+*/
+		return h;
+}
+
+void bl_insert(unit_table_t *ut, long int ele) 
+{
+		uint16_t h, i;
+		h = 0x5AA5;
+
+		for(i = 0; i < 4; i++)
+		{
+				h = h * 131 + (ele >> (i * 16));
+				ut->bl_table[i][h] = true;
+		}
+}
+
+bool bl_find(unit_table_t *ut, long int ele)
+{
+		uint16_t h, i;
+		h = 0x5AA5;
+
+		for(i = 0; i < 4; i++)
+		{
+				//h = ele >> (i * 16);
+				h = h * 131 + (ele >> (i * 16));
+				if(ut->bl_table[i][h] == false) return false;
+		}
+
+		return true;
+}
+
+void write_cache_clear(unit_table_t *ut)
+{
+		cache_t *cur, *tmp;
+		HASH_ITER(hh, ut->write_cache, cur, tmp) {
+				HASH_DEL(ut->write_cache, cur);
+			 free(cur);
+		}
+		ut->write_cache = NULL;
+}
+
+
+void read_cache_clear(unit_table_t *ut)
+{
+		cache_t *cur, *tmp;
+		HASH_ITER(hh, ut->read_cache, cur, tmp) {
+				HASH_DEL(ut->read_cache, cur);
+			 free(cur);
+		}
+		ut->read_cache = NULL;
+}
+
+bool is_write_cache_hit(unit_table_t *ut, long int addr, bool add)
+{
+		cache_t *wct;
+		HASH_FIND(hh, ut->write_cache, &addr, sizeof(long int), wct);
+		if(wct != NULL) return true;
+		
+		if(add) {
+				//write_cache_clear(ut);
+				wct = (cache_t*) malloc(sizeof(cache_t));
+				wct->addr = addr;
+				HASH_ADD(hh, ut->write_cache, addr, sizeof(long int), wct); 
+		}
+		return false;
+}
+
+bool is_read_cache_hit(unit_table_t *ut, long int addr, bool add)
+{
+		cache_t *rct;
+		HASH_FIND(hh, ut->read_cache, &addr, sizeof(long int), rct);
+		if(rct != NULL) return true;
+		
+		if(add) {
+				//read_cache_clear(ut);
+				rct = (cache_t*) malloc(sizeof(cache_t));
+				rct->addr = addr;
+				HASH_ADD(hh, ut->read_cache, addr, sizeof(long int), rct); 
+		}
+		return false;
+}
+
 
 /*
  * Checks if an iteration exists with the arguments provided
@@ -825,6 +1003,8 @@ void delete_proc_hash(mem_proc_t *mem_proc)
 		mem_proc_t *tmp_mem, *cur_mem;
 		HASH_ITER(hh, mem_proc, cur_mem, tmp_mem) {
 				//if(mem_proc != cur_mem) 
+				if(cur_mem->hasUsed) memWrite.dep++;
+				else memWrite.notUsed++;
 				UBSI_HASH_DEL(mem_proc, cur_mem, 3); 
 				if(cur_mem) UBSI_free(cur_mem, 3);
 		}
@@ -937,6 +1117,9 @@ void unit_end(unit_table_t *unit, long a1)
 		unit->mem_unit = NULL;
 		unit->r_addr = 0;
 		unit->w_addr = 0;
+		read_cache_clear(unit);
+		write_cache_clear(unit);
+		//bzero(unit->bl_table, sizeof(unit->bl_table));
 }
 
 void clear_proc(unit_table_t *unit)
@@ -1014,12 +1197,23 @@ void flush_all_unit()
 
 void mem_write(unit_table_t *ut, long int addr, char* buf)
 {
-		if(ut->cur_unit.loopid == 0 || ut->cur_unit.timestamp == 0) return;
+		memWrite.total++;
+		if(ut->cur_unit.loopid == 0 || ut->cur_unit.timestamp == 0) {
+				memWrite.outOfUnit++;
+				return;
+		}
+
+		if(is_write_cache_hit(ut, addr, true)) {
+				memWrite.cacheHit++;
+				return;
+		}
+
 		// check for dup_write
 		mem_unit_t *umt;
 		HASH_FIND(hh, ut->mem_unit, &addr, sizeof(long int), umt);
 
 		if(umt != NULL) {
+				memWrite.dup++;
 				//fprintf(stderr, "umt is not null: %lx\n", addr);
 				return;
 		}
@@ -1042,10 +1236,13 @@ void mem_write(unit_table_t *ut, long int addr, char* buf)
 				HASH_FIND(hh, unit_table, &th, sizeof(thread_t), pt); 
 				//HASH_FIND_INT(unit_table, &pid, pt);
 				if(pt == NULL) {
+					 memWrite.outOfUnit++;
 						return; //
 						//assert(1);
 				}
 		}
+
+  bl_insert(pt, addr);
 
 		mem_proc_t *pmt;
 		HASH_FIND(hh, pt->mem_proc, &addr, sizeof(long int), pmt);
@@ -1054,16 +1251,29 @@ void mem_write(unit_table_t *ut, long int addr, char* buf)
 				assert(pmt);
 				pmt->addr = addr;
 				pmt->last_written_unit = ut->cur_unit;
+				pmt->hasUsed = false;
 				HASH_ADD(hh, pt->mem_proc, addr, sizeof(long int),  pmt);
 		} else {
 				pmt->last_written_unit = ut->cur_unit;
+				if(pmt->hasUsed) memWrite.dep++;
+				else memWrite.notUsed++;
+				pmt->hasUsed = false;
 		}
 }
 
 void mem_read(unit_table_t *ut, long int addr, char *buf)
 {
-		if(ut->cur_unit.loopid == 0 || ut->cur_unit.timestamp == 0) return;
+		memRead.total++;
+		if(ut->cur_unit.loopid == 0 || ut->cur_unit.timestamp == 0) {
+				memRead.outOfUnit++;
+				return;
+		}
 
+/*		if(is_read_cache_hit(ut, addr, true)) {
+				memRead.cacheHit++;
+				return;
+		}
+*/
 		int pid = ut->pid;
 		unit_table_t *pt;
 		char tmp[2048];
@@ -1080,13 +1290,25 @@ void mem_read(unit_table_t *ut, long int addr, char *buf)
 				//HASH_FIND_INT(unit_table, &pid, pt);
 				if(pt == NULL) {
 						incomplete_record = true;
+						memRead.outOfUnit++;
 						return;
 				}
 		}
 
+
+	 if(!bl_find(pt, addr)) {
+		  memRead.blMiss++;
+    return;
+  }
+
 		mem_proc_t *pmt;
 		HASH_FIND(hh, pt->mem_proc, &addr, sizeof(long int), pmt);
-		if(pmt == NULL) return;
+		if(pmt == NULL) {
+				memRead.notUsed++;
+				return;
+		}
+
+	 pmt->hasUsed = true;
 
 		thread_unit_t lid;
 		if(pmt->last_written_unit.timestamp != 0 && !is_same_unit(pmt->last_written_unit, ut->cur_unit))
@@ -1103,11 +1325,19 @@ void mem_read(unit_table_t *ut, long int addr, char *buf)
 
 						get_time_and_eventid(buf, &time, &eventId);
 						if(incomplete_record == false && ut->proc[0] != '\0') {
+								memRead.dep++;
 								sprintf(tmp, "type=UBSI_DEP msg=ubsi(%.3f:%ld): dep=(pid=%d thread_time=%d.%03d unitid=%d iteration=%d time=%.3lf count=%d), "
 												,time, eventId, lt->id.tid, lt->id.thread_time.seconds, lt->id.thread_time.milliseconds, lt->id.loopid, lt->id.iteration, lt->id.timestamp, lt->id.count);
 								emit_log(ut, tmp, true, true);
+						} else {
+								memRead.incomplete++;
 						}
+				} else {
+						memRead.dup++;
 				}
+		} else {
+				if(pmt->last_written_unit.timestamp == 0) memRead.outOfUnit++;
+				if(is_same_unit(pmt->last_written_unit, ut->cur_unit)) memRead.sameUnit++;
 		}
 }
 
@@ -1135,7 +1365,10 @@ unit_table_t* add_unit(int tid, int pid, bool valid)
 		ut->link_unit = NULL;
 		ut->mem_proc = NULL;
 		ut->mem_unit = NULL;
+		ut->write_cache = NULL;
+		ut->read_cache = NULL;
 		bzero(ut->proc, 1024);
+		bzero(ut->bl_table, sizeof(ut->bl_table));
 		for(i = 0; i < MAX_SIGNO; i++) {
 				ut->signal_handler[i] = false;
 		}
@@ -1283,10 +1516,12 @@ void UBSI_event(long tid, long a0, long a1, char *buf)
 		curLogTime = ut->last_active_time;
 		switch(a0) {
 				case UENTRY: 
+						unitEntry++;
 						if(ut->valid) unit_end(ut, a1);
 						unit_entry(ut, a1, buf);
 						break;
 				case UEXIT: 
+						unitExit++;
 						if(isNewUnit == false)
 						{
 								unit_end(ut, a1);
@@ -1301,6 +1536,9 @@ void UBSI_event(long tid, long a0, long a1, char *buf)
 						ut->r_addr += a1;
 						mem_read(ut, ut->r_addr, buf);
 						break;
+				case MREAD3:
+					 memRead.loc[a1]++;
+						break;
 				case MWRITE1:
 						ut->w_addr = a1;
 						ut->w_addr = ut->w_addr << 32;
@@ -1309,11 +1547,15 @@ void UBSI_event(long tid, long a0, long a1, char *buf)
 						ut->w_addr += a1;
 						mem_write(ut, ut->w_addr, buf);
 						break;
+				case MWRITE3:
+					 memWrite.loc[a1]++;
+						break;
 		}
 }
 
 void non_UBSI_event(long tid, int sysno, bool succ, char *buf)
 {
+		regSyscall++;
 		char *ptr;
 		long a0, a1, a2;
 		long ret;
@@ -1543,7 +1785,7 @@ void syscall_handler(char *buf)
 				ptr = strstr(buf, " a0=");
 				if(ptr == NULL) return;
 				a0 = strtol(ptr+4, NULL, 16);
-				if(a0 == UENTRY || a0 == UEXIT || a0 == MREAD1 || a0 == MREAD2 || a0 == MWRITE1 || a0 ==MWRITE2)
+				if(a0 == UENTRY || a0 == UEXIT || a0 == MREAD1 || a0 == MREAD2 || a0 == MREAD3 || a0 == MWRITE1 || a0 == MWRITE2 || a0 == MWRITE3)
 				{
 						ptr = strstr(ptr, " a1=");
 						if(ptr == NULL) return;
