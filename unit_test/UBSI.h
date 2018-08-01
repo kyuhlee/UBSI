@@ -1,6 +1,7 @@
 #ifndef UBSI_DEFINE
 #define UBSI_DEFINE
 
+#include <signal.h>
 #include <unistd.h>
 #include <sys/syscall.h>   /* For SYS_xxx definitions */
 

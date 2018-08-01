@@ -1,11 +1,11 @@
-SRCS = $(wildcard *.c)
-PROGS = $(patsubst %.c,%,$(SRCS))
-CC=gcc
+SRCS = $(wildcard *.cpp)
+PROGS = $(patsubst %.cpp,%,$(SRCS))
+CC=g++
 CFLAGS = -g -lpthread
 
 all: $(PROGS)
 
-%: %.c 
+%: %.cpp
 	$(CC)  -o $@ $< $(CFLAGS) 
 
 clean:
