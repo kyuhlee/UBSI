@@ -63,4 +63,5 @@ bool is_file_rename(int sysno);
 bool is_fork_or_clone(int sysno);
 bool is_exec(int sysno);
 
+void get_sockaddr(const char *val, char *family_t, char *addr_t, char *port_t);
 #endif

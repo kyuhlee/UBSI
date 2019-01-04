@@ -1,4 +1,7 @@
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
+
 #include <stdio.h>
 #include <string.h>
 #include <string>
@@ -21,6 +24,7 @@
 #include "UBSI_auditBridge.h"
 
 int UBSIAnalysis = FALSE;
+int CSVOUT = FALSE;
 int UBSI_buffer(char *buf);
 void UBSI_sig_handler(int signo);
 int UBSI_buffer_flush();
@@ -105,6 +109,7 @@ void print_usage(char** argv) {
 		printf("  -m, --merge-unit          merge N units into a single unit.\n");
 		printf("                            This option is only valid with -d option. (format: YYYY-MM-DD:HH:MM:SS,\n");
 		printf("                              e.g., 2017-1-21:07:09:20)\n");
+		printf("  -c, --csv																	export output in CSV format.\n");
 		printf("  -h, --help                print this help and exit\n");
 		printf("\n");
 
@@ -125,10 +130,11 @@ int command_line_option(int argc, char **argv)
 				{"time",			required_argument,	NULL, 't'},
 				{"wait-for-end",	no_argument,		NULL, 'w'},
 				{"merge-unit",	required_argument,		NULL, 'm'},
+				{"csv",	required_argument,		NULL, 'c'},
 				{NULL,				0,					NULL,	0}
 		};
 
-		while((c = getopt_long(argc, argv, "hus:F:f:d:t:m:w", long_opt, NULL)) != -1)
+		while((c = getopt_long(argc, argv, "hcus:F:f:d:t:m:w", long_opt, NULL)) != -1)
 		{
 				switch(c)
 				{
@@ -171,6 +177,10 @@ int command_line_option(int argc, char **argv)
 
 						case 'u':
 								UBSIAnalysis = TRUE;
+								break;
+
+						case 'c':
+								CSVOUT = TRUE;
 								break;
 
 						case 'h':
@@ -705,8 +715,12 @@ void loop_exit(unit_table_t *unit, char *buf)
 		get_time_and_eventid(buf, &time, &eventId);
 		// Adding extra space at the end of UBSI_EXIT string below because last character is overwritten with NULL char
 		if(incomplete_record == false && unit->proc[0] != '\0') {
-				sprintf(tmp, "type=UBSI_EXIT msg=ubsi(%.3f:%ld):  ", time, eventId);
-				emit_log(unit, tmp, false, true);
+				if(CSVOUT) {
+						CSV_UBSI(unit, buf, "UBSI_EXIT", NULL, NULL);
+				} else {
+						sprintf(tmp, "type=UBSI_EXIT msg=ubsi(%.3f:%ld):  ", time, eventId);
+						emit_log(unit, tmp, false, true);
+				}
 				unit->valid = false;
 		}
 }
@@ -745,8 +759,12 @@ void unit_entry(unit_table_t *unit, long a1, char* buf)
 		unit->cur_unit.count = iteration_count_value;
 		
 		if(incomplete_record == false && unit->proc[0] != '\0') {
-				sprintf(tmp, "type=UBSI_ENTRY msg=ubsi(%.3f:%ld): ", time, eventid);
-				emit_log(unit, tmp, true, true);
+				if(CSVOUT) {
+						CSV_UBSI(unit, buf, "UBSI_ENTRY", NULL, NULL);
+				} else {
+						sprintf(tmp, "type=UBSI_ENTRY msg=ubsi(%.3f:%ld): ", time, eventid);
+						emit_log(unit, tmp, true, true);
+				}
 		}
 		if(mergeUnit > 0) {
 				unit->merge_count = 1;
@@ -981,9 +999,16 @@ void mem_read(unit_table_t *ut, long int addr, char *buf)
 
 						get_time_and_eventid(buf, &time, &eventId);
 						if(incomplete_record == false && ut->proc[0] != '\0') {
-								sprintf(tmp, "type=UBSI_DEP msg=ubsi(%.3f:%ld): dep=(pid=%d thread_time=%d.%03d unitid=%d iteration=%d time=%.3lf count=%d), "
-												,time, eventId, lt->id.tid, lt->id.thread_time.seconds, lt->id.thread_time.milliseconds, lt->id.loopid, lt->id.iteration, lt->id.timestamp, lt->id.count);
-								emit_log(ut, tmp, true, true);
+								if(CSVOUT) {
+										char tmp2[2048];
+										sprintf(tmp, "%d_%d.%03d",lt->id.tid, lt->id.thread_time.seconds, lt->id.thread_time.milliseconds);
+										sprintf(tmp2, "%.3lf_%d_%d", lt->id.timestamp, lt->id.loopid, lt->id.iteration);
+										CSV_UBSI(ut, buf, "UBSI_DEP", tmp, tmp2);
+								} else {
+										sprintf(tmp, "type=UBSI_DEP msg=ubsi(%.3f:%ld): dep=(pid=%d thread_time=%d.%03d unitid=%d iteration=%d time=%.3lf count=%d), "
+														,time, eventId, lt->id.tid, lt->id.thread_time.seconds, lt->id.thread_time.milliseconds, lt->id.loopid, lt->id.iteration, lt->id.timestamp, lt->id.count);
+										emit_log(ut, tmp, true, true);
+								}
 								ut->new_dep++; // KYU: test for unit integration
 						}
 				}
@@ -1036,9 +1061,16 @@ void UBSI_dep(unit_table_t *ut, long unit_from, char *buf)
 
 		get_time_and_eventid(buf, &time, &eventId);
 
-		sprintf(tmp, "type=UBSI_DEP msg=ubsi(%.3f:%ld): dep=(pid=%d thread_time=%d.%03d unitid=%d iteration=%d time=%.3lf count=%d), "
-						,time, eventId, umap_t->thread_unit.tid, umap_t->thread_unit.thread_time.seconds, umap_t->thread_unit.thread_time.milliseconds, umap_t->thread_unit.loopid, umap_t->thread_unit.iteration, umap_t->thread_unit.timestamp, umap_t->thread_unit.count);
-		emit_log(ut, tmp, true, true);
+		if(CSVOUT) {
+				char tmp2[2048];
+				sprintf(tmp, "%d_%d.%03d",umap_t->thread_unit.tid, umap_t->thread_unit.thread_time.seconds, umap_t->thread_unit.thread_time.milliseconds);
+				sprintf(tmp2, "%.3lf_%d_%d", umap_t->thread_unit.timestamp, umap_t->thread_unit.loopid, umap_t->thread_unit.iteration);
+				CSV_UBSI(ut, buf, "UBSI_DEP", tmp, tmp2);
+		} else {
+				sprintf(tmp, "type=UBSI_DEP msg=ubsi(%.3f:%ld): dep=(pid=%d thread_time=%d.%03d unitid=%d iteration=%d time=%.3lf count=%d), "
+								,time, eventId, umap_t->thread_unit.tid, umap_t->thread_unit.thread_time.seconds, umap_t->thread_unit.thread_time.milliseconds, umap_t->thread_unit.loopid, umap_t->thread_unit.iteration, umap_t->thread_unit.timestamp, umap_t->thread_unit.count);
+				emit_log(ut, tmp, true, true);
+		}
 		ut->new_dep++; // KYU: test for unit integration
   
 		//ut->num_dep++;
@@ -1090,7 +1122,7 @@ unit_table_t* add_unit(int tid, int pid, bool valid, char *buf)
 		comm.copy(ut->comm, 1024);
 		exe.copy(ut->exe, 1024);
 
-		printf("add_unit: tid %d, pid %d, ppid %d, gid %d, uid %d, euid %d, comm=%s, exe=%s\n", ut->thread.tid, ut->pid, ut->ppid, ut->gid, ut->uid, ut->euid, ut->comm, ut->exe);
+		//printf("add_unit: tid %d, pid %d, ppid %d, gid %d, uid %d, euid %d, comm=%s, exe=%s\n", ut->thread.tid, ut->pid, ut->ppid, ut->gid, ut->uid, ut->euid, ut->comm, ut->exe);
 		/* support OQL*/
 
 		bzero(ut->proc, 1024);
@@ -1309,11 +1341,13 @@ void dup_fd(unit_table_t *unit, long fd0, long fd1)
 		t_fd1 = new fd_t();
 		t_fd1->fd = fd1;
 		t_fd1->inode = t_fd0->inode;
+		t_fd1->type = t_fd0->type;
+		t_fd1->isImportant = t_fd0->isImportant;
 		strncpy(t_fd1->name, t_fd0->name, 1024);
 		HASH_ADD(hh, ut->fd, fd, sizeof(long), t_fd1);
 }
 
-void set_fd(unit_table_t *unit, long fd, const char* name, int inode)
+void set_fd(unit_table_t *unit, long fd, const char* name, int inode, fd_t::fd_type type, int isImportant)
 {
 		thread_group_leader_t *tgl;
 		thread_group_t *tg;
@@ -1331,12 +1365,20 @@ void set_fd(unit_table_t *unit, long fd, const char* name, int inode)
 		//HASH_FIND(hh, ut->fd, &t_fd, sizeof(fd_t), new_fd);
 		HASH_FIND(hh, ut->fd, &fd, sizeof(long), new_fd);
 		
-		if(new_fd != NULL) return;
+		if(new_fd != NULL) 
+		{
+				new_fd->type = type;
+				strncpy(new_fd->name, name, 1024);
+				new_fd->inode = inode;
+				return;
+		}
 
 		new_fd = new fd_t();
 		new_fd->fd = fd;
+		new_fd->type = type;
 		strncpy(new_fd->name, name, 1024);
 		new_fd->inode = inode;
+		new_fd->isImportant = isImportant;
 		HASH_ADD(hh, ut->fd, fd, sizeof(long), new_fd);
 }
 
@@ -1384,79 +1426,133 @@ void clear_fd(unit_table_t *unit, long fd)
 		}
 }
 
-void unit_integration_helper(unit_table_t *ut, char* buf, int sysno, bool succ, long a0)
+void analyze_syscall(unit_table_t *ut, char* buf, int sysno, bool succ, long a0)
 {
-		if(succ == false) return;
+		if(sysno != SYS_connect && succ == false) return;
 
-		int i, inode;
+		int i, inode, items;
 		long ret;
 		char *ptr, *name;
 		fd_t *fd;
+		string sockaddr;
 		
 		ut->num_syscall++;
 		if(is_read(sysno) || is_write(sysno)) {
 				if(a0 >= 3) {
 						fd = get_fd(ut, a0);
 						if(fd == NULL) {
-								fprintf(stderr, "fd is null(%d): %s\n", a0, buf);
+								//fprintf(stderr, "fd is null(%d): %s\n", a0, buf);
 								return;
 						}
-						ut->num_io_syscall++;
-						CSV_access_by_fd(ut, buf, a0, fd->name, fd->inode);
+						if(fd->isImportant) ut->num_io_syscall++;
+						if(CSVOUT) {
+								if(fd->type == fd->file) CSV_access_by_fd(ut, buf, a0, fd->name, fd->inode);
+								else if(fd->type == fd->socket) CSV_socket(ut, buf, fd->name, a0);
+						}
 				}
+				return;
 		}
 		
+		if(sysno == SYS_recvfrom || sysno == SYS_recvmsg || sysno == SYS_recvmmsg ||
+				 sysno == SYS_sendto || sysno == SYS_sendmsg || sysno == SYS_sendmmsg)
+		{
+				ptr = strstr(buf, "type=SOCKADDR");
+				if(ptr) sockaddr = extract_string(ptr, "saddr=");
+				fd = get_fd(ut, a0);
+				if(fd != NULL && fd->type == fd_t::socket) {
+						if(CSVOUT) CSV_socket2(ut, buf,  sockaddr.c_str(), a0, fd->name);
+						if(fd->isImportant) ut->num_io_syscall++;
+				} else {
+						if(CSVOUT) CSV_socket2(ut, buf,  sockaddr.c_str(), a0, "");
+				}
+				return;
+		}
+
 		if(sysno == SYS_clone || sysno == SYS_execve || sysno == SYS_fork ||
 				 sysno == SYS_vfork)  {
 				ut->num_proc_syscall++;
+				if(CSVOUT) {
+						if(sysno == SYS_execve) 
+								CSV_execve(ut, buf);
+						else CSV_default(ut, buf);
+				}
+
+				return;
 		}
 		
 		if(sysno == SYS_close) {
-//				clear_fd(ut, a0);
+				fd = get_fd(ut, a0);
+				if(fd == NULL) {
+						//fprintf(stderr, "fd is null(%d): %s\n", a0, buf);
+						return;
+				}
+				if(CSVOUT) {
+						if(fd->type == fd->file) CSV_access_by_fd(ut, buf, a0, fd->name, fd->inode);
+						else if(fd->type == fd->socket) CSV_socket(ut, buf, fd->name, a0);
+				}
+
+				return;
 		}
 
 		if(sysno == SYS_open || sysno == SYS_openat || sysno == SYS_creat)	{
+				int isImportant = 1;
 				string filePath = filename_open_tmp(buf, &inode);
 				const char *path = filePath.c_str();
-				CSV_file_open(ut, buf);
+				if(CSVOUT) CSV_file_open(ut, buf);
 				
 				//fprintf(stderr, "PATH=%s ---- %s\n", path, last_ptr);
-/*				
-				if(strstr(path, ".mozilla") != NULL) return;
-				if(strstr(path, ".cache/mozilla") != NULL) return;
-				if(strstr(path, ".Xauthority") != NULL) return;
-				if(strstr(path, "/.config/") != NULL) return;
-				if(strstr(path, "/.gconf/") != NULL) return;
-				if(strstr(path, "/.dbus/") != NULL) return;
-*/
-				if(strstr(path, "/.local/share") != NULL) return;
-				if(strncmp(path, "/lib/", 5) == 0) return;
-				if(strncmp(path, "/proc/", 6) == 0) return;
-				if(strncmp(path, "/usr/", 5) == 0) return;
-				if(strncmp(path, "/etc/", 5) == 0) return;
-				if(strncmp(path, "/dev/", 5) == 0) return;
-				if(strncmp(path, "/run/", 5) == 0) return;
-				if(strncmp(path, "/var/", 5) == 0) return;
-				if(strncmp(path, "/sys/", 5) == 0) return;
-				if(strstr(path, "/firefox-54.0.1/") != NULL) return;
-				if(strstr(path, "/firefox-42.0/") != NULL) return;
+				
+				if(strstr(path, ".mozilla") != NULL) isImportant=0;
+				if(strstr(path, ".cache/mozilla") != NULL) isImportant=0;
+				if(strstr(path, ".Xauthority") != NULL) isImportant=0;
+				if(strstr(path, "/.config/") != NULL) isImportant=0;
+				if(strstr(path, "/.gconf") != NULL) isImportant=0;
+				if(strstr(path, "/.dbus/") != NULL) isImportant=0;
+
+				if(strstr(path, "/.local/share") != NULL) isImportant=0;
+				if(strncmp(path, "/lib/", 5) == 0) isImportant=0;
+				if(strncmp(path, "/proc/", 6) == 0) isImportant=0;
+				if(strncmp(path, "/usr/", 5) == 0) isImportant=0;
+				if(strncmp(path, "/etc/", 5) == 0) isImportant=0;
+				if(strncmp(path, "/dev/", 5) == 0) isImportant=0;
+				if(strncmp(path, "/run/", 5) == 0) isImportant=0;
+				if(strncmp(path, "/var/", 5) == 0) isImportant=0;
+				if(strncmp(path, "/sys/", 5) == 0) isImportant=0;
+				if(strstr(path, "/firefox-54.0.1") != NULL) isImportant=0;
+				if(strstr(path, "/firefox-42.0/") != NULL) isImportant=0;
+
+	 		fprintf(testout, "path: %s\n", path); // KYU TEST
 
 				ptr = strstr(buf, " exit=");
 				if(ptr == NULL) return;
 				if(sscanf(ptr, " exit=%ld", &ret) < 1) return;
-				set_fd(ut, ret, path, inode);
-				fprintf(testout, "path: %s\n", path); // KYU TEST
+				set_fd(ut, ret, path, inode, fd_t::file, isImportant);
+
+				return;
 		}
 		
-		if(sysno == SYS_accept || sysno == SYS_connect || sysno == SYS_accept4) {
+		if(sysno == SYS_accept || sysno == SYS_connect || sysno == SYS_accept4 || sysno == SYS_bind || sysno == SYS_listen) {
+				int isImportant = 1;
+				ptr = strstr(buf, "type=SOCKADDR");
+				string sockaddr;
+				if(ptr == NULL) {
+						sockaddr.clear();
+						isImportant = 0;
+				} else {
+						sockaddr = extract_string(ptr, "saddr=");
+				}
 				if(SYS_connect) {
-						set_fd(ut, a0, "IPADDR", 0);
+						set_fd(ut, a0, sockaddr.c_str(), 0, fd_t::socket, isImportant);
+						if(CSVOUT) CSV_socket(ut, buf, sockaddr.c_str(), a0);
 				} else {
 						ptr = strstr(buf, " exit=");
 						if(ptr == NULL) return;
 						if(sscanf(ptr, " exit=%ld", &ret) < 1) return;
-						set_fd(ut, ret, "IPADDR", 0);
+						set_fd(ut, ret, sockaddr.c_str(), 0, fd_t::socket, isImportant);
+						if(CSVOUT) CSV_socket(ut, buf, sockaddr.c_str(), ret);
 				}
+
+				return;
 		}
 
 		if(sysno == SYS_dup || sysno == SYS_dup2) {
@@ -1464,11 +1560,133 @@ void unit_integration_helper(unit_table_t *ut, char* buf, int sysno, bool succ, 
 				if(ptr == NULL) return;
 				if(sscanf(ptr, " exit=%ld", &ret) < 1) return;
 				dup_fd(ut, a0, ret);
-				CSV_default(ut, buf);
+				if(CSVOUT) CSV_default(ut, buf);
+
+				return;
 		}
 
-		if(sysno == SYS_pipe || sysno == SYS_pipe2) {
-//				fprintf(stderr, "pipe!\n");
+		if(sysno == SYS_pipe || sysno == SYS_pipe2 || sysno == SYS_socketpair) {
+				ptr = strstr(buf, "type=FD_PAIR");
+				if(ptr == NULL) return;
+				int fd0, fd1;
+				if(extract_int(ptr, "fd0=", &fd0) == 0) return;
+				if(extract_int(ptr, "fd1=", &fd1) == 0) return;
+				set_fd(ut, fd0, "pipe", 0, fd_t::pipe, 1);
+				set_fd(ut, fd1, "pipe", 0, fd_t::pipe, 1);
+				if(CSVOUT) CSV_pipe(ut, buf, fd0, fd1);
+
+				return;
+		}
+		
+		if(!CSVOUT) return;
+
+		if(sysno == SYS_sendfile) {
+				// in_fd should be regular file, cannot be socket
+				// out_fd can be either file or socket.
+				int a1, in_inode, out_inode;
+				bool out_socket;
+				fd_t *in_fd, *out_fd;
+				char *in_name, *out_name;
+
+				if(extract_hex_int(buf, " a1=", &a1) == 0) return;
+				in_fd = get_fd(ut, a1);
+				out_fd = get_fd(ut, a0);
+
+				if(in_fd == NULL && out_fd == NULL) {
+						//fprintf(stderr, "fd is null(%d): %s\n", a0, buf);
+						return;
+				}
+
+				if(in_fd == NULL) {
+						in_name = NULL;
+						out_name = out_fd->name;
+						if(out_fd->type == fd_t::socket) {
+								out_socket = true;
+						} else {
+								out_socket = false;
+								out_inode = out_fd->inode;
+						}
+				} else if(out_fd == NULL) {
+						out_name = NULL;
+						in_name = in_fd->name;
+						in_inode = in_fd->inode;
+						if(in_fd->type == fd_t::socket) in_name = NULL;
+				} else {
+						out_name = out_fd->name;
+						in_name = in_fd->name;
+						in_inode = in_fd->inode;
+						if(out_fd->type == fd_t::socket) {
+								out_socket = true;
+						} else {
+								out_socket = false;
+								out_inode = out_fd->inode;
+						}
+
+						if(in_fd->type == fd_t::socket) in_name = NULL;
+				}
+
+				CSV_sendfile(ut, buf, a1, in_name, in_inode, a0, out_socket, out_name, out_inode);
+
+				return;
+		}
+		
+		if(sysno == SYS_link || sysno == SYS_linkat || sysno == SYS_symlink || sysno == SYS_symlinkat) {
+				int oldfd = 0, newfd = 0;
+				if(sysno == SYS_linkat) {
+						// oldfd = a0, newfd = a2;
+						oldfd = a0;
+						extract_hex_int(buf, " a2=", &newfd);
+				} else if(sysno == SYS_symlinkat) {
+						extract_hex_int(buf, " a1=", &newfd);
+				}
+				CSV_link(ut, buf, sysno, oldfd, newfd);
+
+				return;
+		}
+
+		if(sysno == SYS_unlink || sysno == SYS_unlinkat || sysno == SYS_rmdir)
+		{
+				CSV_unlink(ut, buf);
+				return;
+		}
+
+		if(sysno == SYS_rename || sysno == SYS_renameat || sysno == SYS_renameat2)
+		{
+				int oldfd = 0, newfd = 0;
+				if(sysno == SYS_renameat || sysno == SYS_renameat2) {
+						// oldfd = a0, newfd = a2;
+						oldfd = a0;
+						extract_hex_int(buf, " a2=", &newfd);
+				}
+				CSV_rename(ut, buf, sysno, oldfd, newfd);
+
+				return;
+		}
+
+		if((extract_int(buf, "items=", &items) == 0) || items == 0) {
+				// TODO: if arg is filedescriptor, handle that
+				if(sysno == SYS_ioctl || sysno == SYS_fcntl) {
+						if(a0 >= 3) {
+								fd = get_fd(ut, a0);
+								if(fd == NULL) {
+										//fprintf(stderr, "fd is null(%d): %s\n", a0, buf);
+										return;
+								}
+								if(fd->type == fd->file) CSV_access_by_fd(ut, buf, a0, fd->name, fd->inode);
+								else if(fd->type == fd->socket) CSV_socket(ut, buf, fd->name, a0);
+						}
+				} else {
+						CSV_default(ut, buf);
+				}
+				return;
+		} else {
+				//items > 0
+				if(strstr(buf, "type=PATH")) CSV_file_access_by_name(ut, buf, sysno);
+				if(ptr = strstr(buf, "type=SOCKADDR")) {
+						sockaddr = extract_string(ptr, "saddr=");
+						CSV_socket(ut, buf, sockaddr.c_str(), a0);
+				}
+				return;
 		}
 }
 
@@ -1489,10 +1707,6 @@ void non_UBSI_event(long tid, int sysno, bool succ, long a0, long a1, long a2, c
 		if(ut == NULL) {
 				ut = add_unit(tid, tid, 0, buf);
 		}
-		
-		unit_integration_helper(ut, buf, sysno, succ, a0); // KYU: test for unit integration
-
-		emit_log(ut, buf, false, false);
 
 		if(succ == true && (sysno == SYS_clone || sysno == SYS_fork || sysno == SYS_vfork))
 		{
@@ -1530,7 +1744,6 @@ void non_UBSI_event(long tid, int sysno, bool succ, long a0, long a1, long a2, c
 								comm.copy(ut->comm, 1024);
 								exe.copy(ut->exe, 1024);
 								set_thread_time(buf, &thread_create_time[tid]);
-								CSV_execve(ut, buf);
 								// updated start time to the time when execve happened. Done to reflect what happens in Audit reporter.
 						}
 						proc_end(ut);
@@ -1567,6 +1780,9 @@ void non_UBSI_event(long tid, int sysno, bool succ, long a0, long a1, long a2, c
 						ut->signal_handler[a0] = true;
 				}
 		}
+
+		if(CSVOUT || mergeUnit > 0) analyze_syscall(ut, buf, sysno, succ, a0);
+		if(!CSVOUT) emit_log(ut, buf, false, false);
 }
 
 bool get_succ(char *buf, int sysno)
@@ -1652,6 +1868,9 @@ void netio_handler(char *buf)
 		long fd, tid, ppid;
 		int succ = 0;
 		struct unit_table_t *ut;
+		string local_addr, remote_addr;
+		char *l_addr, *r_addr, *fd_name;
+		fd_t *t_fd;
 
 		incomplete_record = false;
 		
@@ -1677,9 +1896,33 @@ void netio_handler(char *buf)
 				ut = add_unit(tid, tid, 0, buf);
 		}
 		
-		unit_integration_helper(ut, buf, sysno, succ, fd); // KYU: test for unit integration
+		if(extract_long(buf, " fd=", &fd) == 0) fd = -1;
+		local_addr = extract_string(buf, " local_saddr=");
+		remote_addr = extract_string(buf, " remote_saddr=");
+		
+		/*if(!local_addr.empty()) l_addr = local_addr.c_str();
+		else l_addr = NULL;
+		if(!remote_addr.empty()) r_addr = remote_addr.c_str();
+		else r_addr = NULL;
+*/
+		t_fd = get_fd(ut, fd);
+		if(t_fd && t_fd->type == fd_t::socket)
+		{
+				fd_name = t_fd->name;
+				if(t_fd->isImportant) ut->num_io_syscall++;
+		} else
+				fd_name = NULL;
 
-		emit_log(ut, buf, false, false);
+		if(CSVOUT) {
+				if(local_addr.empty() && remote_addr.empty()) 
+						CSV_netio(ut, buf, fd, fd_name, NULL, NULL);
+				else if(local_addr.empty()) 
+						CSV_netio(ut, buf, fd, fd_name, NULL, remote_addr.c_str());
+				else if(remote_addr.empty())
+						CSV_netio(ut, buf, fd, fd_name, local_addr.c_str(), NULL);
+				else
+						CSV_netio(ut, buf, fd, fd_name, local_addr.c_str(), remote_addr.c_str());
+		} else emit_log(ut, buf, false, false);
 }
 
 void syscall_handler(char *buf)

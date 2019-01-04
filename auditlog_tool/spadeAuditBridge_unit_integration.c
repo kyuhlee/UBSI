@@ -62,6 +62,7 @@ int mergeUnit = 0;
 // KYU: test for unit integration
 int num_org_unit_entry = 0;
 int num_unit_entry = 0;
+FILE *testout;
 
 // UBSI Unit analysis
 #include <assert.h>
@@ -589,7 +590,9 @@ int main(int argc, char *argv[]) {
 		char buffer[BUFFER_LENGTH];
 		struct sockaddr_un serverAddress;
 
-		
+		// KYU TEST
+		testout = fopen("./testout", "w");
+
 		putenv("TZ=EST5EDT"); // set timezone
 		tzset();
 
@@ -614,6 +617,7 @@ int main(int argc, char *argv[]) {
 		else read_log(stdin, "stdin");
 		
 		kyu_test(max_pid); //KYU: test unit integration
+		fclose(testout);
 		return 0;
 }
 
@@ -1592,14 +1596,14 @@ void unit_integration_helper(unit_table_t *ut, char* buf, int sysno, bool succ, 
 				path[i] = '\0';
 
 				//fprintf(stderr, "PATH=%s ---- %s\n", path, last_ptr);
-/*				
+				
 				if(strstr(path, ".mozilla") != NULL) return;
 				if(strstr(path, ".cache/mozilla") != NULL) return;
 				if(strstr(path, ".Xauthority") != NULL) return;
 				if(strstr(path, "/.config/") != NULL) return;
 				if(strstr(path, "/.gconf/") != NULL) return;
 				if(strstr(path, "/.dbus/") != NULL) return;
-*/
+
 				if(strstr(path, "/.local/share") != NULL) return;
 				if(strncmp(path, "/lib/", 5) == 0) return;
 				if(strncmp(path, "/proc/", 6) == 0) return;
@@ -1609,13 +1613,15 @@ void unit_integration_helper(unit_table_t *ut, char* buf, int sysno, bool succ, 
 				if(strncmp(path, "/run/", 5) == 0) return;
 				if(strncmp(path, "/var/", 5) == 0) return;
 				if(strncmp(path, "/sys/", 5) == 0) return;
-				if(strstr(path, "UBSI_patch/firefox-54.0.1") != NULL) return;
+				if(strstr(path, "/firefox-54.0.1/") != NULL) return;
+				if(strstr(path, "/firefox-54.0.1_cache/") != NULL) return;
+				if(strstr(path, "/firefox-42.0/") != NULL) return;
 
 				ptr = strstr(buf, " exit=");
 				if(ptr == NULL) return;
 				if(sscanf(ptr, " exit=%ld", &ret) < 1) return;
 				set_fd(ut, ret);
-//				fprintf(stderr, "FD: %ld -- %s\n", ret, buf);
+				fprintf(testout, "path: %s\n", path); // KYU TEST
 		}
 		
 		if(sysno == SYS_accept || sysno == SYS_connect || sysno == SYS_accept4) {
@@ -1801,7 +1807,7 @@ void ubsi_intercepted_handler(char* buf){
 						 incomplete_record = true;
 							fprintf(stderr, "ERROR: Malformed UBSI record: 'ubsi_intercepted' not found\n");
 					}
-					free(tmp);
+					if(tmp) free(tmp);
 				}else{
 				 incomplete_record = true;
 					fprintf(stderr, "ERROR: Failed to allocate memory for 'ubsi_intercepted' record\n");	
@@ -1880,8 +1886,8 @@ int UBSI_buffer_flush()
 								printf("%s", eb->event);
 						}
 						HASH_DEL(event_buf, eb);
-						free(eb->event);
-						free(eb);
+						if(eb && eb->event) free(eb->event);
+						if(eb) free(eb);
 				} 
 		}
 }
@@ -1975,8 +1981,8 @@ int UBSI_buffer(const char *buf)
 								printf("%s", eb->event);
 						}
 						HASH_DEL(event_buf, eb);
-						free(eb->event);
-						free(eb);
+						if(eb && eb->event) free(eb->event);
+						if(eb) free(eb);
 				}
 		}
 }
