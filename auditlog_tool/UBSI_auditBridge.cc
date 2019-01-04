@@ -109,7 +109,7 @@ void print_usage(char** argv) {
 		printf("  -m, --merge-unit          merge N units into a single unit.\n");
 		printf("                            This option is only valid with -d option. (format: YYYY-MM-DD:HH:MM:SS,\n");
 		printf("                              e.g., 2017-1-21:07:09:20)\n");
-		printf("  -c, --csv																	export output in CSV format.\n");
+		printf("  -c, --csv                 export output in CSV format.\n");
 		printf("  -h, --help                print this help and exit\n");
 		printf("\n");
 
