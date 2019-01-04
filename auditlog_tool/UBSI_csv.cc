@@ -383,8 +383,8 @@ void CSV_pipe(unit_table_t *ut, char *buf, int fd0, int fd1)
 
 		common = CSV_common(ut, buf);
 
-		ss << "fd0.num=" << fd0 << DELIMITER;
-		ss << "fd1.num=" << fd1 << DELIMITER;
+		ss << "fd[0].num=" << fd0 << DELIMITER;
+		ss << "fd[1].num=" << fd1 << DELIMITER;
 		evt.append(ss.str());
 
 		printf("%s%s\n", common.c_str(), evt.c_str());
