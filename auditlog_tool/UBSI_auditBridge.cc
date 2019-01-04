@@ -1994,7 +1994,7 @@ int UBSI_buffer_flush()
 								if(UBSIAnalysis) syscall_handler(eb->event);
 								else printf("%s", eb->event);
 						} else {
-								printf("%s", eb->event);
+								if(!CSVOUT) printf("%s", eb->event);
 						}
 						HASH_DEL(event_buf, eb);
 						if(eb && eb->event) free(eb->event);
@@ -2030,7 +2030,7 @@ void UBSI_buffer_emit()
 								if(UBSIAnalysis) syscall_handler(eb->event);
 								else printf("%s", eb->event);
 						} else {
-								printf("%s", eb->event);
+								if(!CSVOUT) printf("%s", eb->event);
 						}
 						HASH_DEL(event_buf, eb);
 						if(eb && eb->event) free(eb->event);
