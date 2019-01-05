@@ -162,7 +162,7 @@ string filename_open_tmp(char *buf, int *inode);
 void CSV_execve(unit_table_t *ut, char *buf);
 void CSV_file_open(unit_table_t *ut, char *buf);
 void CSV_file_access_by_name(unit_table_t *ut, char *buf, int sysno);
-void CSV_access_by_fd(unit_table_t *ut, char *buf, int fd, char* name, int inode);
+void CSV_access_by_fd(unit_table_t *ut, char *buf, int fd, char* name, int inode, const char *type);
 void CSV_default(unit_table_t *ut, char *buf);
 void CSV_socket(unit_table_t *ut, char *buf, const char *sockaddr, int fd);
 void CSV_socket2(unit_table_t *ut, char *buf, const char *sockaddr, int fd, const char *remote);

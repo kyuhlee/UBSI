@@ -1446,8 +1446,9 @@ void analyze_syscall(unit_table_t *ut, char* buf, int sysno, bool succ, long a0)
 						}
 						if(fd->isImportant) ut->num_io_syscall++;
 						if(CSVOUT) {
-								if(fd->type == fd->file) CSV_access_by_fd(ut, buf, a0, fd->name, fd->inode);
-								else if(fd->type == fd->socket) CSV_socket(ut, buf, fd->name, a0);
+								if(fd->type == fd_t::file) CSV_access_by_fd(ut, buf, a0, fd->name, fd->inode, "file");
+								else if(fd->type == fd_t::pipe) CSV_access_by_fd(ut, buf, a0, fd->name, fd->inode, "pipe");
+								else if(fd->type == fd_t::socket) CSV_socket(ut, buf, fd->name, a0);
 						}
 				}
 				return;
@@ -1487,8 +1488,9 @@ void analyze_syscall(unit_table_t *ut, char* buf, int sysno, bool succ, long a0)
 						return;
 				}
 				if(CSVOUT) {
-						if(fd->type == fd->file) CSV_access_by_fd(ut, buf, a0, fd->name, fd->inode);
-						else if(fd->type == fd->socket) CSV_socket(ut, buf, fd->name, a0);
+						if(fd->type == fd_t::file) CSV_access_by_fd(ut, buf, a0, fd->name, fd->inode, "file");
+						else if(fd->type == fd_t::pipe) CSV_access_by_fd(ut, buf, a0, fd->name, fd->inode, "pipe");
+						else if(fd->type == fd_t::socket) CSV_socket(ut, buf, fd->name, a0);
 				}
 
 				return;
@@ -1672,8 +1674,9 @@ void analyze_syscall(unit_table_t *ut, char* buf, int sysno, bool succ, long a0)
 										//fprintf(stderr, "fd is null(%d): %s\n", a0, buf);
 										return;
 								}
-								if(fd->type == fd->file) CSV_access_by_fd(ut, buf, a0, fd->name, fd->inode);
-								else if(fd->type == fd->socket) CSV_socket(ut, buf, fd->name, a0);
+								if(fd->type == fd_t::file) CSV_access_by_fd(ut, buf, a0, fd->name, fd->inode, "file");
+								else if(fd->type == fd_t::pipe) CSV_access_by_fd(ut, buf, a0, fd->name, fd->inode, "pipe");
+								else if(fd->type == fd_t::socket) CSV_socket(ut, buf, fd->name, a0);
 						}
 				} else {
 						CSV_default(ut, buf);
